@@ -113,7 +113,7 @@ The core technical challenges:
 |---|---|
 | **iOS version** | 26.2 or later — Drawer uses Liquid Glass APIs that don't exist on earlier iOS |
 | **Device** | iPhone or iPad. LiDAR-equipped models (iPhone 12 Pro and newer Pro models, iPad Pro M-series) get the best measurement experience; non-LiDAR devices fall back to a credit-card reference scan |
-| **Apple ID** | Any Apple ID — free or paid Developer Program. (See below for the differences in expiry / app limits.) |
+| **Apple ID** | Any Apple ID — used by the sideloader to re-sign the IPA |
 | **A computer** | Mac or Windows PC, used once to set up the sideloader |
 
 ### Step-by-step (using AltStore — the most common path)
@@ -141,18 +141,6 @@ The core technical challenges:
 5. **AltStore re-signs and installs Drawer**
    - AltStore takes ~1-2 minutes to re-sign the IPA with your Apple ID and push it to the phone
    - When done, Drawer appears on your home screen
-
-### Free vs. paid Apple ID — what changes
-
-| | Free Apple ID | Paid Apple Developer Program ($99/year) |
-|---|---|---|
-| Install limit | 3 sideloaded apps at a time | ~unlimited |
-| App expiry | 7 days, then needs re-signing | 1 year |
-| Re-signing | AltStore can auto-refresh as long as AltServer is running on your computer over the same WiFi | Same, but rarely needed |
-| Push notifications | ❌ Not available | ✅ Available |
-| Background fetch | Limited | Full |
-
-For Drawer specifically — **free Apple ID is fine.** The app doesn't use push notifications or sophisticated background tasks. The 7-day expiry is the main inconvenience.
 
 ### Alternative sideloaders
 
