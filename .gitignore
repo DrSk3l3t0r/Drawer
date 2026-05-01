@@ -1,0 +1,71 @@
+# ─── macOS ───────────────────────────────────────────
+.DS_Store
+.AppleDouble
+.LSOverride
+._*
+.Spotlight-V100
+.Trashes
+
+# ─── Xcode build / cache ─────────────────────────────
+build/
+DerivedData/
+*.dSYM
+*.dSYM.zip
+*.ipa
+*.hmap
+*.moved-aside
+*.xccheckout
+*.xcscmblueprint
+
+# ─── Per-user Xcode state ────────────────────────────
+xcuserdata/
+*.xcuserstate
+*.pbxuser
+!default.pbxuser
+*.mode1v3
+!default.mode1v3
+*.mode2v3
+!default.mode2v3
+*.perspectivev3
+!default.perspectivev3
+
+# ─── Swift Package Manager ───────────────────────────
+.build/
+.swiftpm/
+# Package.resolved IS committed for apps — it locks dependency versions.
+
+# ─── CocoaPods (not used here, but ignored if added later) ──
+Pods/
+Podfile.lock
+
+# ─── Carthage ────────────────────────────────────────
+Carthage/Build/
+Carthage/Checkouts/
+
+# ─── Fastlane ────────────────────────────────────────
+fastlane/report.xml
+fastlane/Preview.html
+fastlane/screenshots/
+fastlane/test_output/
+
+# ─── Code Injection (debug-only tool) ────────────────
+iOSInjectionProject/
+
+# ─── Editor / OS noise ───────────────────────────────
+*.swp
+*.swo
+*~
+.idea/
+.vscode/
+
+# ─── Claude Code (local-only state) ──────────────────
+.claude/settings.local.json
+.claude/cache/
+
+# ─── Secrets (defensive — there shouldn't be any) ────
+*.p12
+*.cer
+*.mobileprovision
+GoogleService-Info.plist
+.env
+.env.*
