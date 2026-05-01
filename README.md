@@ -986,7 +986,9 @@ Unit tests live in `DrawerTests/`. UI tests live in `DrawerUITests/`. Both run w
 
 ## 12. License
 
-> *Add your license here. The Bambu Studio reference assets (filament identifiers, gcode header structure) are derived from inspecting Bambu's own exported files; if you ship this commercially, audit those constants against Bambu's terms.*
+This project is released under the **MIT License** — see [`LICENSE`](LICENSE) for the full text.
+
+> ⚠️ **Heads-up:** the Bambu Studio reference assets in `BambuReferenceAssets.swift` (filament identifiers like `GFA00`, the printer model id `N2S`, the G-code header format) are derived from inspecting Bambu's own exported files. The MIT license covers *this* code, not those underlying conventions — if you ship this commercially, audit those constants against Bambu's terms.
 
 ---
 
