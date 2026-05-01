@@ -26,21 +26,22 @@
 1. [What is Drawer?](#1-what-is-drawer)
 2. [Demo & Screenshots](#2-demo--screenshots)
 3. [Features at a Glance](#3-features-at-a-glance)
-4. [System Architecture](#4-system-architecture)
-5. [The User Journey](#5-the-user-journey)
-6. [Codebase Tour](#6-codebase-tour)
-7. [Subsystem Deep-Dives](#7-subsystem-deep-dives)
-   - [7.1 The Measurement Pipeline](#71-the-measurement-pipeline)
-   - [7.2 The Layout Engine](#72-the-layout-engine-the-heart-of-the-app)
-   - [7.3 3D Mesh Generation](#73-3d-mesh-generation)
-   - [7.4 The Bambu A1 Slicer](#74-the-bambu-a1-slicer)
-   - [7.5 The 3D Preview](#75-the-3d-preview)
-   - [7.6 Liquid Glass UI](#76-liquid-glass-ui)
-8. [Data Model](#8-data-model)
-9. [Persistence](#9-persistence)
-10. [Glossary for Non-Coders](#10-glossary-for-non-coders)
-11. [Build & Run](#11-build--run)
-12. [License](#12-license)
+4. [Install](#4-install)
+5. [System Architecture](#5-system-architecture)
+6. [The User Journey](#6-the-user-journey)
+7. [Codebase Tour](#7-codebase-tour)
+8. [Subsystem Deep-Dives](#8-subsystem-deep-dives)
+   - [8.1 The Measurement Pipeline](#81-the-measurement-pipeline)
+   - [8.2 The Layout Engine](#82-the-layout-engine-the-heart-of-the-app)
+   - [8.3 3D Mesh Generation](#83-3d-mesh-generation)
+   - [8.4 The Bambu A1 Slicer](#84-the-bambu-a1-slicer)
+   - [8.5 The 3D Preview](#85-the-3d-preview)
+   - [8.6 Liquid Glass UI](#86-liquid-glass-ui)
+9. [Data Model](#9-data-model)
+10. [Persistence](#10-persistence)
+11. [Glossary for Non-Coders](#11-glossary-for-non-coders)
+12. [Build & Run](#12-build--run)
+13. [License](#13-license)
 
 ---
 
@@ -102,7 +103,77 @@ The core technical challenges:
 
 ---
 
-## 4. System Architecture
+## 4. Install
+
+> ⚠️ **iOS doesn't allow installing arbitrary `.ipa` files by direct download.** This release ships through the open-source iOS sideloading pattern: download the IPA from the Releases page, then have a sideloader re-sign it with your own Apple ID. Below are the realistic steps.
+
+### Requirements
+
+| Requirement | Detail |
+|---|---|
+| **iOS version** | 26.2 or later — Drawer uses Liquid Glass APIs that don't exist on earlier iOS |
+| **Device** | iPhone or iPad. LiDAR-equipped models (iPhone 12 Pro and newer Pro models, iPad Pro M-series) get the best measurement experience; non-LiDAR devices fall back to a credit-card reference scan |
+| **Apple ID** | Any Apple ID — free or paid Developer Program. (See below for the differences in expiry / app limits.) |
+| **A computer** | Mac or Windows PC, used once to set up the sideloader |
+
+### Step-by-step (using AltStore — the most common path)
+
+[AltStore](https://altstore.io) is a free, open-source app installer that re-signs IPAs with your Apple ID and pushes them to your iPhone. It's how most open-source iOS apps are distributed.
+
+1. **Install AltStore on your computer**
+   - Mac: download AltServer from [altstore.io](https://altstore.io), drag to Applications, launch
+   - Windows: download AltServer for Windows, run the installer, install iTunes + iCloud (required for the WiFi sync layer)
+
+2. **Install AltStore on your iPhone**
+   - Plug your iPhone into your computer via USB
+   - In the menu bar (Mac) or system tray (Windows), click the AltServer icon → "Install AltStore" → pick your iPhone
+   - Sign in with your Apple ID when prompted (this is what re-signs the IPA later)
+
+3. **Trust the developer profile**
+   - On your iPhone: **Settings → General → VPN & Device Management** → tap your Apple ID under "Developer App" → **Trust**
+   - You should now see the AltStore app on your home screen
+
+4. **Download the IPA**
+   - Go to [Releases](https://github.com/DrSk3l3t0r/Drawer/releases/latest) on this repo
+   - Tap the `Drawer-vX.Y.Z.ipa` link to download it to your iPhone
+   - Tap **Open in AltStore** when iOS asks where to send the file
+
+5. **AltStore re-signs and installs Drawer**
+   - AltStore takes ~1-2 minutes to re-sign the IPA with your Apple ID and push it to the phone
+   - When done, Drawer appears on your home screen
+
+### Free vs. paid Apple ID — what changes
+
+| | Free Apple ID | Paid Apple Developer Program ($99/year) |
+|---|---|---|
+| Install limit | 3 sideloaded apps at a time | ~unlimited |
+| App expiry | 7 days, then needs re-signing | 1 year |
+| Re-signing | AltStore can auto-refresh as long as AltServer is running on your computer over the same WiFi | Same, but rarely needed |
+| Push notifications | ❌ Not available | ✅ Available |
+| Background fetch | Limited | Full |
+
+For Drawer specifically — **free Apple ID is fine.** The app doesn't use push notifications or sophisticated background tasks. The 7-day expiry is the main inconvenience.
+
+### Alternative sideloaders
+
+- **[Sideloadly](https://sideloadly.io)** — Mac/Windows GUI tool that's a one-shot install (no AltServer running in the background). Same Apple-ID-based re-signing, same 7-day expiry on free accounts.
+- **[TrollStore](https://github.com/opa334/TrollStore)** — works only on specific iOS versions with a particular CoreTrust bug. **Permanent install, no expiry, no Apple ID required.** Check the TrollStore compatibility list to see if your iOS version is supported.
+- **AltStore PAL (EU only)** — Apple-sanctioned third-party marketplace, available in the EU under the Digital Markets Act.
+
+### Building from source instead
+
+If you'd rather build the app yourself in Xcode (avoids the IPA + sideloader dance entirely — Xcode signs and installs directly to your phone), see [Section 12 — Build & Run](#12-build--run). You'll need an Apple ID and Xcode 26+.
+
+### Honest disclaimers
+
+- **This is pre-release software.** UI is polished but you should expect rough edges in measurement accuracy and slicer edge cases. Don't run a 30-hour print without first verifying the `.gcode.3mf` in Bambu Studio.
+- **No warranty, no support contract.** See the MIT [`LICENSE`](LICENSE).
+- **Sideloading uses your personal Apple ID.** AltStore and Sideloadly are reputable open-source tools that don't expose your credentials, but you're trusting them with your Apple ID for the duration of the install.
+- **Apple may change sideloading rules.** This install method has worked since 2019 but Apple controls iOS — future iOS versions could tighten or loosen sideloading. Check the AltStore project for current status.
+
+---
+
+## 5. System Architecture
 
 The app is layered: SwiftUI views at the top, stateless engines and services below them, and a single persistent store at the bottom.
 
@@ -118,7 +189,7 @@ The app is layered: SwiftUI views at the top, stateless engines and services bel
 
 ---
 
-## 5. The User Journey
+## 6. The User Journey
 
 This is what happens when a user goes from a messy drawer to a printable file.
 
@@ -128,7 +199,7 @@ Each step gates the next: you can't pick a purpose before confirming a measureme
 
 ---
 
-## 6. Codebase Tour
+## 7. Codebase Tour
 
 The project is ~10,800 lines of Swift across 27 files. Every file has one job.
 
@@ -171,9 +242,9 @@ Drawer/
 
 ---
 
-## 7. Subsystem Deep-Dives
+## 8. Subsystem Deep-Dives
 
-### 7.1 The Measurement Pipeline
+### 8.1 The Measurement Pipeline
 
 #### What it does, in plain English
 
@@ -233,7 +304,7 @@ The `MeasurementEngine` enforces sanity bounds (3″–60″ width, 3″–40″
 
 ---
 
-### 7.2 The Layout Engine (the heart of the app)
+### 8.2 The Layout Engine (the heart of the app)
 
 This is where the app earns its keep. Every other subsystem feeds in or out of `LayoutEngine`.
 
@@ -343,7 +414,7 @@ Result: large_tray on shelf 1, the eating group as a tight stacked column on she
 
 ---
 
-### 7.3 3D Mesh Generation
+### 8.3 3D Mesh Generation
 
 #### What it does, in plain English
 
@@ -394,7 +465,7 @@ It also carries methods like `fitsBed(_ printer)` (bed-size check) and `gramsFor
 
 ---
 
-### 7.4 The Bambu A1 Slicer
+### 8.4 The Bambu A1 Slicer
 
 This is the most ambitious subsystem in the app. It produces a real `.gcode.3mf` for the **Bambu Lab A1** that opens directly in Bambu Studio with a live print preview, calibration block, AMS lite tool changes, and an end-of-print ramp.
 
@@ -504,7 +575,7 @@ These flow into both the G-code (`CONFIG_BLOCK`) and the `project_settings.confi
 
 ---
 
-### 7.5 The 3D Preview
+### 8.5 The 3D Preview
 
 #### What it does, in plain English
 
@@ -537,7 +608,7 @@ The result: drawer floor stays flat (XZ plane), modules stand up correctly along
 
 ---
 
-### 7.6 Liquid Glass UI
+### 8.6 Liquid Glass UI
 
 iOS 26 introduced the **Liquid Glass** material — a dynamic, refractive, content-aware glass effect. Drawer uses the *real* APIs (not a custom approximation):
 
@@ -582,7 +653,7 @@ Button { onScan(); scanBounce += 1 } label: {
 
 ---
 
-## 8. Data Model
+## 9. Data Model
 
 The full type graph that flows through the app:
 
@@ -596,7 +667,7 @@ The conversion happens exactly once, in `PrintModelGenerator.makeOrganizer`, usi
 
 ---
 
-## 9. Persistence
+## 10. Persistence
 
 `DrawerStore` is an `ObservableObject` injected into the SwiftUI environment. It stores an array of `SavedDrawer`s as a JSON blob in `UserDefaults`:
 
@@ -635,7 +706,7 @@ If the data ever outgrows this approach, swapping in SwiftData would only touch 
 
 ---
 
-## 10. Glossary for Non-Coders
+## 11. Glossary for Non-Coders
 
 | Term | Plain English |
 |---|---|
@@ -660,7 +731,7 @@ If the data ever outgrows this approach, swapping in SwiftData would only touch 
 
 ---
 
-## 11. Build & Run
+## 12. Build & Run
 
 ### Requirements
 
@@ -691,7 +762,7 @@ Unit tests live in `DrawerTests/`. UI tests live in `DrawerUITests/`. Both run w
 
 ---
 
-## 12. License
+## 13. License
 
 This project is released under the **MIT License** — see [`LICENSE`](LICENSE) for the full text.
 
