@@ -276,7 +276,13 @@ struct Print3DPreview: View {
 
     private static func makeBaseScene() -> SCNScene {
         let s = SCNScene()
-        s.background.contents = UIColor.clear
+        // Solid dark background that matches the surrounding card. SceneKit
+        // ignores the SwiftUI `.background()` modifier and paints over it,
+        // so setting `UIColor.clear` here would let SceneKit's default light
+        // surface show — looks like a bright white box in the middle of the
+        // dark UI. A specific dark UIColor keeps the preview visually unified
+        // with the rest of the print-prep sheet.
+        s.background.contents = UIColor(red: 0.04, green: 0.06, blue: 0.10, alpha: 1.0)
 
         // Soft fill light from above.
         let key = SCNLight()

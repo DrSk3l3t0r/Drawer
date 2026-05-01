@@ -181,11 +181,11 @@ struct BambuA1SlicerEngine: SlicerEngine {
         let exportResult = try BambuGcode3MFPackager.package(pkgInputs)
 
         // 5. Build job summary
+        // NOTE: oversized-module warnings are intentionally *not* appended
+        // here — `PrintPrepView.warningsSection` builds that message itself
+        // (in red, since oversize is a hard fit failure) so duplicating it
+        // here would render the same string twice.
         var warnings: [String] = []
-        let oversized = ctx.organizer.oversizedModules()
-        if !oversized.isEmpty {
-            warnings.append("\(oversized.count) module(s) exceed the printer bed: \(oversized.map { $0.name }.joined(separator: ", "))")
-        }
         if ctx.organizer.settings.wallThicknessMm < 0.8 {
             warnings.append("Walls thinner than 0.8 mm may print poorly.")
         }

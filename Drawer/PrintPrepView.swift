@@ -59,12 +59,16 @@ struct PrintPrepView: View {
                         plate: amsPlate,
                         assignment: assignment
                     )
-                    estimateCard
+                    // Order: visualize → choose materials/colors → see what
+                    // those choices cost → fine-tune settings → review &
+                    // export. Estimate sits *after* AMS so material choices
+                    // immediately reflect in grams + time stats.
                     materialSection
                     amsLiteSection
                     if amsPlate.activeFilaments.count > 1 {
                         coloringPolicySection
                     }
+                    estimateCard
                     printerSection
                     settingsSection
                     warningsSection

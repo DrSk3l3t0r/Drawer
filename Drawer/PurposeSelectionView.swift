@@ -36,11 +36,6 @@ struct PurposeSelectionView: View {
                     customInputSection
                 }
 
-                if selectedPurpose != nil {
-                    nextStepHint
-                        .transition(.opacity.combined(with: .move(edge: .top)))
-                }
-
                 generateButton
                     .padding(.bottom, 30)
             }
@@ -177,35 +172,6 @@ struct PurposeSelectionView: View {
         .padding(.horizontal, 20)
         .padding(.top, 16)
         .transition(.opacity.combined(with: .move(edge: .top)))
-    }
-
-    // MARK: - Next Step Hint
-
-    private var nextStepHint: some View {
-        HStack(spacing: 10) {
-            Image(systemName: "wand.and.stars")
-                .foregroundStyle(selectedPurpose?.color ?? .white)
-            VStack(alignment: .leading, spacing: 2) {
-                Text("Recommended starter layout")
-                    .font(.subheadline.bold())
-                    .foregroundStyle(.white)
-                Text("You'll be able to add or remove specific organizers next.")
-                    .font(.caption)
-                    .foregroundStyle(.white.opacity(0.6))
-            }
-            Spacer()
-        }
-        .padding(14)
-        .background(
-            RoundedRectangle(cornerRadius: 14)
-                .fill(.white.opacity(0.05))
-                .overlay(
-                    RoundedRectangle(cornerRadius: 14)
-                        .stroke((selectedPurpose?.color ?? .white).opacity(0.25), lineWidth: 1)
-                )
-        )
-        .padding(.horizontal, 20)
-        .padding(.top, 4)
     }
 
     // MARK: - Generate Button

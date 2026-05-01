@@ -88,6 +88,13 @@ struct ContentView: View {
                                     capturedImage: capturedImage
                                 )
                                 .environmentObject(store)
+                                // Force a fresh `LayoutResultView` instance per
+                                // generated layout. Without this, SwiftUI
+                                // reuses the destination and `@State var layout`
+                                // keeps its first-seen value — so picking a new
+                                // category and tapping Generate would still
+                                // render the previous category's items.
+                                .id("\(layout.purpose.rawValue)-\(layout.items.first?.id.uuidString ?? "empty")")
                             }
                         }
                     }
@@ -116,8 +123,11 @@ struct ContentView: View {
                 if let recent = store.savedDrawers.first {
                     recentSection(recent)
                 }
-                
-                Spacer().frame(height: 110)
+
+                // Bottom inset so the floating Liquid Glass bar doesn't
+                // overlap the most-recent card on devices with a home
+                // indicator (110 pt was clipping the card on iPhone 17 Pro).
+                Spacer().frame(height: 132)
             }
         }
     }
@@ -337,39 +347,48 @@ struct LiquidGlassBottomBar: View {
     @State private var scanBounce = 0
 
     var body: some View {
-        ZStack {
-            // The bar — single rounded glass capsule with tabs spread on
-            // either side of the centered FAB cutout.
-            HStack(spacing: 0) {
-                barTab(icon: "house.fill", label: "Home", index: 0)
-                Spacer().frame(width: 78)   // room for the floating FAB
-                barTab(icon: "archivebox.fill", label: "Saved", index: 1)
-            }
-            .padding(.horizontal, 8)
-            .padding(.vertical, 8)
-            .glassEffect(.regular, in: Capsule())
+        // Wrap the bar pill and the FAB in a single GlassEffectContainer so
+        // they share one refraction context — that's what makes them feel
+        // like one cohesive Liquid Glass element rather than two glued-on
+        // surfaces.
+        GlassEffectContainer(spacing: 18) {
+            ZStack {
+                // The bar — single rounded glass capsule with tabs spread on
+                // either side of the centered FAB cutout.
+                HStack(spacing: 0) {
+                    barTab(icon: "house.fill", label: "Home", index: 0)
+                    Spacer().frame(width: 78)   // room for the floating FAB
+                    barTab(icon: "archivebox.fill", label: "Saved", index: 1)
+                }
+                .padding(.horizontal, 8)
+                .padding(.vertical, 8)
+                .glassEffect(.regular, in: Capsule())
 
-            // Scan FAB — interactive, tinted glass that floats above center.
-            Button {
-                onScan()
-                scanBounce += 1
-            } label: {
-                Image(systemName: "camera.viewfinder")
-                    .font(.system(size: 22, weight: .semibold))
-                    .foregroundStyle(.white)
-                    .frame(width: 58, height: 58)
-                    .symbolEffect(.bounce, value: scanBounce)
+                // Scan FAB — interactive, tinted glass that floats above
+                // center. Tint kept low so the underlying glass refraction
+                // shows through (a higher-opacity tint reads as a flat
+                // solid colored circle).
+                Button {
+                    onScan()
+                    scanBounce += 1
+                } label: {
+                    Image(systemName: "camera.viewfinder")
+                        .font(.system(size: 22, weight: .semibold))
+                        .foregroundStyle(.white)
+                        .frame(width: 58, height: 58)
+                        .symbolEffect(.bounce, value: scanBounce)
+                }
+                .buttonStyle(.plain)
+                .glassEffect(
+                    .regular
+                        .tint(Color(hue: 0.6, saturation: 0.7, brightness: 0.95).opacity(0.30))
+                        .interactive(),
+                    in: Circle()
+                )
+                .offset(y: -8)
+                .accessibilityLabel("Scan New Drawer")
+                .sensoryFeedback(.impact(weight: .medium), trigger: scanBounce)
             }
-            .buttonStyle(.plain)
-            .glassEffect(
-                .regular
-                    .tint(Color(hue: 0.6, saturation: 0.8, brightness: 0.9).opacity(0.6))
-                    .interactive(),
-                in: Circle()
-            )
-            .offset(y: -8)
-            .accessibilityLabel("Scan New Drawer")
-            .sensoryFeedback(.impact(weight: .medium), trigger: scanBounce)
         }
         .sensoryFeedback(.selection, trigger: selectedTab)
     }
@@ -393,9 +412,15 @@ struct LiquidGlassBottomBar: View {
             .frame(height: 44)
             .background {
                 if isSelected {
+                    // Selected pill is itself a small glass surface so it
+                    // reads as glass-on-glass, not as an opaque white capsule
+                    // sitting on top of glass.
                     Capsule()
-                        .fill(.white.opacity(0.16))
-                        .overlay(Capsule().stroke(.white.opacity(0.22), lineWidth: 0.5))
+                        .fill(Color.clear)
+                        .glassEffect(
+                            .regular.tint(Color.white.opacity(0.12)),
+                            in: Capsule()
+                        )
                         .matchedGeometryEffect(id: "tabSelection", in: tabSelectionNS)
                         .padding(.horizontal, 6)
                 }
