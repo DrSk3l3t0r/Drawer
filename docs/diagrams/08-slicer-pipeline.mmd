@@ -1,0 +1,16 @@
+flowchart TB
+    Org[PrintableOrganizer<br/>modules + settings + filament] --> Choose{printer.id == bambu_a1?}
+
+    Choose -->|No| DSE[DiagnosticSlicerEngine<br/>geometry validation +<br/>filament/time estimate]
+    DSE --> TME[ThreeMFExporter<br/>5-file .3mf]
+
+    Choose -->|Yes| BSE[BambuA1SlicerEngine.<br/>sliceWithContext]
+    BSE --> P1[For each module:<br/>TrayLayerPlanner.plan]
+    P1 --> Layers[LayerPlan array<br/>per module]
+    Layers --> Merge[Merge layers across<br/>modules at each Z step]
+    Merge --> Skirt[SkirtPlanner adds<br/>skirt loops on layer 0]
+    Skirt --> ACP[AMSLiteColorPlanner:<br/>per-layer filament ranges<br/>+ per-slot mm/g usage]
+    ACP --> Emit[BambuA1GcodeEmitter:<br/>HEADER_BLOCK / CONFIG_BLOCK /<br/>EXECUTABLE_BLOCK]
+    Emit --> Pkg[BambuGcode3MFPackager:<br/>16 OPC files in a ZIP]
+    Pkg --> Thumbs[BambuThumbnailRenderer:<br/>plate_1.png + small + top + pick]
+    Thumbs --> File[.gcode.3mf<br/>opens in Bambu Studio]

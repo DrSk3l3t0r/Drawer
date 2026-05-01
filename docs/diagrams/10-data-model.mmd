@@ -1,0 +1,119 @@
+classDiagram
+    class DrawerMeasurement {
+        +Double widthInches
+        +Double depthInches
+        +Double heightInches
+        +MeasurementSource source
+        +Double confidenceScore
+        +Bool heightMeasured
+        +NormalizedQuad? capturedQuad
+    }
+
+    class MeasurementSource {
+        <<enum>>
+        lidar
+        cameraReference
+        cameraEstimate
+        manual
+        defaultEstimate
+    }
+
+    class NormalizedQuad {
+        +NormalizedPoint topLeft
+        +NormalizedPoint topRight
+        +NormalizedPoint bottomLeft
+        +NormalizedPoint bottomRight
+    }
+
+    class DrawerPurpose {
+        <<enum>>
+        utensils
+        junkDrawer
+        spices
+        bakingTools
+        officeSupplies
+        linens
+        custom
+    }
+
+    class OrganizerTemplate {
+        +String id
+        +String name
+        +Double width
+        +Double height
+        +Double hue
+        +Int priority
+        +String group
+        +Int groupOrder
+    }
+
+    class OrganizerItem {
+        +UUID id
+        +String name
+        +Double x, y, width, height
+        +Double colorHue, colorSaturation, colorBrightness
+    }
+
+    class DrawerLayout {
+        +DrawerMeasurement measurement
+        +DrawerPurpose purpose
+        +Array~OrganizerItem~ items
+        +Double coveragePercentage
+        +Array~String~ unplacedTemplates
+        +Array~String~ warnings
+        +Array~String~ selectedTemplateIds
+    }
+
+    class SavedDrawer {
+        +UUID id
+        +String name
+        +Date date
+        +DrawerLayout layout
+        +Data? photoData
+    }
+
+    class PrintableModule {
+        +UUID id
+        +Double outerWidthMm, outerDepthMm, heightMm
+        +Double originXMm, originYMm
+        +Double wallThicknessMm
+        +String tintHex
+    }
+
+    class PrintableOrganizer {
+        +Array~PrintableModule~ modules
+        +Double drawerInteriorWidthMm
+        +Double drawerInteriorDepthMm
+        +PrintSettings settings
+        +FilamentProfile filament
+        +PrinterProfile printer
+        +DrawerPurpose purpose
+    }
+
+    class AMSLitePlate {
+        +Array~FilamentProfile?~ slots
+    }
+
+    class AMSLiteAssignment {
+        +Int defaultSlot
+        +Dictionary moduleSlot
+        +Dictionary featureSlot
+        +Dictionary moduleFeatureSlot
+    }
+
+    class FilamentProfile {
+        +FilamentMaterial material
+        +FilamentColor color
+    }
+
+    DrawerMeasurement --> MeasurementSource
+    DrawerMeasurement --> NormalizedQuad
+    DrawerLayout --> DrawerMeasurement
+    DrawerLayout --> DrawerPurpose
+    DrawerLayout --> OrganizerItem
+    SavedDrawer --> DrawerLayout
+    OrganizerTemplate --> DrawerPurpose : grouped by
+    PrintableOrganizer --> PrintableModule
+    PrintableOrganizer --> DrawerPurpose
+    AMSLitePlate --> FilamentProfile
+    AMSLiteAssignment --> AMSLitePlate

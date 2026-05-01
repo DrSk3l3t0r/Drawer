@@ -1,0 +1,40 @@
+sequenceDiagram
+    actor User
+    participant Home as ContentView<br/>(Home)
+    participant Cap as CaptureView
+    participant ARK as LiDARScanService<br/>(or AVCapture)
+    participant Vis as Vision /<br/>MeasurementEngine
+    participant Rev as MeasurementReviewView
+    participant Pur as PurposeSelectionView
+    participant LE as LayoutEngine
+    participant Res as LayoutResultView
+    participant PP as PrintPrepView
+    participant Sl as Bambu A1 SlicerEngine
+
+    User->>Home: Tap "Scan New Drawer"
+    Home->>Cap: present full-screen cover
+    Cap->>ARK: startScanning()
+    loop Live capture
+        ARK->>Vis: rectangle detection (every 0.25s)
+        ARK->>ARK: depth-sample 4 corners (every 0.1s)
+        ARK->>Cap: state = .searching → .tracking → .stable
+    end
+    User->>Cap: tap shutter (gated by .stable)
+    Cap->>Rev: captured image + DrawerMeasurement
+    User->>Rev: drag quad / edit dimensions
+    Rev->>Pur: confirmed measurement
+    User->>Pur: tap "Utensils" + Generate
+    Pur->>LE: generateLayout(measurement, .utensils, recommended)
+    LE->>LE: build placement units per group
+    LE->>LE: pack onto shelves (group-aware)
+    LE->>Res: DrawerLayout (items + warnings)
+    User->>Res: tap "3D Print"
+    Res->>PP: present sheet
+    User->>PP: pick PETG, 2 colors, slice
+    PP->>Sl: sliceWithContext(...)
+    Sl->>Sl: TrayLayerPlanner<br/>per-module layers
+    Sl->>Sl: merge layers + AMS ranges
+    Sl->>Sl: emit G-code (HEADER/CONFIG/EXECUTABLE)
+    Sl->>Sl: package as .gcode.3mf
+    Sl->>PP: file URL
+    PP->>User: ShareSheet → Bambu Studio

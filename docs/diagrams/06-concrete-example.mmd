@@ -1,0 +1,10 @@
+flowchart TB
+    G1["main_tray group:<br/>large_tray (6×12)"]
+    G1 --> P1["Single-unit candidates:<br/>original (6×12) ★, rotated (12×6)<br/>Place original at (0.25, 0.25)"]
+    P1 --> S1["Shelf 1 opened:<br/>y=0.25, height=12,<br/>group=main_tray, xCursor=6.5"]
+
+    G2["eating group:<br/>fork (3×10), spoon (3×10), knife (3×10)"]
+    G2 --> SC["Median item shape: 3W × 10D → itemsAreTall=true<br/>Preferred arrangement: row<br/><br/>Candidates &amp; scores:<br/>Row(false) 9.2×10 = 92 × 0.75 = 69 ★<br/>Column(true) 10×9.2 = 92 × 1.5 = 138<br/>Wrap(true) 10×9.2 = 92 × 1.5 = 138"]
+    SC --> P2["Try Row(false) 9.2×10:<br/>Strategy A (same-group eating shelf): none<br/>Strategy B (new shelf): nextY = 0.25 + 12 + 0.25 = 12.5,<br/>12.5 + 10 = 22.5 ≤ 21.75? NO → fail<br/>Strategy C (cross-group shelf 1): availW = 14 − 6.5 − 0.25 = 7.25,<br/>9.2 &gt; 7.25 → fail<br/><br/>Try next candidate: Column(true) 10×9.2"]
+    P2 --> P3["Column(true): nextY = 12.5,<br/>12.5 + 9.2 = 21.7 ≤ 21.75 ✓<br/>Place at (0.25, 12.5)"]
+    P3 --> R["Items committed (drawer space):<br/>fork at (0.25, 12.5, 10W × 3D)<br/>spoon at (0.25, 15.6, 10W × 3D)<br/>knife at (0.25, 18.7, 10W × 3D)"]

@@ -1,0 +1,10 @@
+flowchart LR
+    Group["[fork, spoon, knife]"] --> Build[arrangeRow / arrangeColumn / arrangeWrap]
+    Build --> R1[Row,<br/>original]
+    Build --> R2[Row,<br/>rotated]
+    Build --> C1[Column,<br/>original]
+    Build --> C2[Column,<br/>rotated]
+    Build --> W1[Wrap,<br/>original]
+    Build --> W2[Wrap,<br/>rotated]
+    R1 & R2 & C1 & C2 & W1 & W2 --> Score[Score each:<br/>area × factor]
+    Score --> Pick[Pick lowest score<br/>that fits drawer]

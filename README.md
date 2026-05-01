@@ -106,48 +106,7 @@ The core technical challenges:
 
 The app is layered: SwiftUI views at the top, stateless engines and services below them, and a single persistent store at the bottom.
 
-```mermaid
-flowchart TB
-    classDef view fill:#1e3a5f,stroke:#4a90d9,color:#fff
-    classDef engine fill:#3d2c5e,stroke:#8e6fc1,color:#fff
-    classDef slicer fill:#1f4a3a,stroke:#4caf80,color:#fff
-    classDef bambu fill:#5e3a1c,stroke:#d18a4a,color:#fff
-    classDef data fill:#4a1f3d,stroke:#b85488,color:#fff
-
-    App[DrawerApp]:::view --> CV[ContentView<br/>Home / Saved tabs<br/>+ Liquid Glass bar]:::view
-
-    CV --> Cap[CaptureView]:::view
-    CV --> SD[SavedDrawersView]:::view
-
-    Cap --> CS[CameraService<br/>+ LiDARScanService]:::engine
-    Cap --> ME[MeasurementEngine<br/>credit-card scaling]:::engine
-    Cap --> MR[MeasurementReviewView<br/>quad adjustment]:::view
-
-    MR --> PS[PurposeSelectionView]:::view
-    PS --> LE[LayoutEngine<br/>group-aware packer]:::engine
-    LE --> LR[LayoutResultView<br/>blueprint + actions]:::view
-
-    LR --> ED[EditOrganizersSheet]:::view
-    LR --> DS[DrawerStore<br/>UserDefaults]:::data
-    LR --> PP[PrintPrepView<br/>AMS lite + slicer settings]:::view
-
-    PP --> PMG[PrintModelGenerator<br/>layout → meshes]:::engine
-    PP --> P3D[Print3DPreview<br/>SceneKit viewer]:::view
-    PP --> SP[SlicerProvider]:::slicer
-
-    SP -->|Bambu A1| BSE[BambuA1SlicerEngine]:::bambu
-    SP -->|Other| DSE[DiagnosticSlicerEngine]:::slicer
-
-    BSE --> TLP[TrayLayerPlanner<br/>per-layer toolpaths]:::bambu
-    BSE --> ACP[AMSLiteColorPlanner<br/>slot ranges + usage]:::bambu
-    BSE --> BGE[BambuA1GcodeEmitter<br/>HEADER / CONFIG / EXECUTABLE]:::bambu
-    BSE --> BPK[BambuGcode3MFPackager<br/>16-file OPC ZIP]:::bambu
-    BPK --> BTR[BambuThumbnailRenderer]:::bambu
-
-    DSE --> TME[ThreeMFExporter<br/>generic .3mf]:::slicer
-
-    SD --> DS
-```
+![System architecture diagram](docs/diagrams/01-architecture.svg)
 
 ### What Each Layer Does
 
@@ -163,48 +122,7 @@ flowchart TB
 
 This is what happens when a user goes from a messy drawer to a printable file.
 
-```mermaid
-sequenceDiagram
-    actor User
-    participant Home as ContentView<br/>(Home)
-    participant Cap as CaptureView
-    participant ARK as LiDARScanService<br/>(or AVCapture)
-    participant Vis as Vision /<br/>MeasurementEngine
-    participant Rev as MeasurementReviewView
-    participant Pur as PurposeSelectionView
-    participant LE as LayoutEngine
-    participant Res as LayoutResultView
-    participant PP as PrintPrepView
-    participant Sl as Bambu A1 SlicerEngine
-
-    User->>Home: Tap "Scan New Drawer"
-    Home->>Cap: present full-screen cover
-    Cap->>ARK: startScanning()
-    loop Live capture
-        ARK->>Vis: rectangle detection (every 0.25s)
-        ARK->>ARK: depth-sample 4 corners (every 0.1s)
-        ARK->>Cap: state = .searching → .tracking → .stable
-    end
-    User->>Cap: tap shutter (gated by .stable)
-    Cap->>Rev: captured image + DrawerMeasurement
-    User->>Rev: drag quad / edit dimensions
-    Rev->>Pur: confirmed measurement
-    User->>Pur: tap "Utensils" + Generate
-    Pur->>LE: generateLayout(measurement, .utensils, recommended)
-    LE->>LE: build placement units per group
-    LE->>LE: pack onto shelves (group-aware)
-    LE->>Res: DrawerLayout (items + warnings)
-    User->>Res: tap "3D Print"
-    Res->>PP: present sheet
-    User->>PP: pick PETG, 2 colors, slice
-    PP->>Sl: sliceWithContext(...)
-    Sl->>Sl: TrayLayerPlanner<br/>per-module layers
-    Sl->>Sl: merge layers + AMS ranges
-    Sl->>Sl: emit G-code (HEADER/CONFIG/EXECUTABLE)
-    Sl->>Sl: package as .gcode.3mf
-    Sl->>PP: file URL
-    PP->>User: ShareSheet → Bambu Studio
-```
+![Sequence diagram of the full user journey](docs/diagrams/02-user-journey.svg)
 
 Each step gates the next: you can't pick a purpose before confirming a measurement, and you can't slice before a layout exists.
 
@@ -268,23 +186,7 @@ Both paths can be overridden manually on the review screen.
 
 #### Path selection
 
-```mermaid
-flowchart LR
-    Start[CaptureView opens] --> Has{LiDAR available?}
-    Has -->|Yes| LiDAR[LiDARScanService<br/>ARKit + scene depth]
-    Has -->|No| AVF[CameraService<br/>AVCapture session]
-    LiDAR --> Live[Live overlay locks<br/>onto drawer rim]
-    AVF --> Hint[UI hint:<br/>'place a credit card']
-    Live --> Lock{state == .stable?}
-    Lock -->|No, still searching| LiDAR
-    Lock -->|Yes| Capture1[Tap shutter]
-    Hint --> Capture2[Tap shutter]
-    Capture1 --> Final[finalizedMeasurement<br/>averaged across 6+ samples]
-    Capture2 --> Vision[VNDetectRectanglesRequest<br/>find drawer + card]
-    Vision --> Scale[Scale factor =<br/>cardPixels / 3.370″]
-    Scale --> Final
-    Final --> Review[MeasurementReviewView]
-```
+![Measurement path-selection flowchart](docs/diagrams/03-measurement-path.svg)
 
 #### LiDAR state machine
 
@@ -382,18 +284,7 @@ Instead of packing one template at a time, the engine builds a **placement unit*
 
 For a group, the engine generates **six candidate arrangements**:
 
-```mermaid
-flowchart LR
-    Group["[fork, spoon, knife]"] --> Build[arrangeRow / arrangeColumn / arrangeWrap]
-    Build --> R1[Row,<br/>original]
-    Build --> R2[Row,<br/>rotated]
-    Build --> C1[Column,<br/>original]
-    Build --> C2[Column,<br/>rotated]
-    Build --> W1[Wrap,<br/>original]
-    Build --> W2[Wrap,<br/>rotated]
-    R1 & R2 & C1 & C2 & W1 & W2 --> Score[Score each:<br/>area × factor]
-    Score --> Pick[Pick lowest score<br/>that fits drawer]
-```
+![Placement-unit candidate generation](docs/diagrams/04-placement-units.svg)
 
 Each arrangement uses a **0.1″ intra-group padding** (vs. 0.25″ between groups). That tight inner gap is what makes a fork section look *part of the same tray* instead of three separate parts.
 
@@ -415,19 +306,7 @@ The **preferred axis** is computed from the median item shape:
 
 Once each group has a winning unit, the packer treats them just like a regular shelf packer treats single items:
 
-```mermaid
-flowchart TB
-    Start[Next group's best unit] --> A{Same-group<br/>shelf with room?}
-    A -->|Yes| PA[Place on it<br/>strategy A]
-    A -->|No| B{New shelf<br/>fits below?}
-    B -->|Yes| PB[Open new shelf<br/>strategy B]
-    B -->|No| C{Any cross-group<br/>shelf with room?}
-    C -->|Yes| PC[Slot in there<br/>strategy C]
-    C -->|No| FB[Fall back to<br/>per-item placement]
-    FB --> Indiv[Place each template<br/>individually,<br/>same 3 strategies]
-    Indiv --> Mark[Items that don't fit<br/>→ unplacedTemplates]
-    PA & PB & PC --> Done[Group placed]
-```
+![Packer 3-strategy decision flow](docs/diagrams/05-packer-strategies.svg)
 
 Each shelf is tagged with a `primaryGroup` — the group of the first unit dropped on it. This is what enforces "groups don't share shelves with other groups when there's room."
 
@@ -435,18 +314,7 @@ Each shelf is tagged with a `primaryGroup` — the group of the first unit dropp
 
 Recommended preset places `[large_tray, fork, spoon, knife, …]`. Drawer dimensions: usable area 13.5″ × 21.5″ after the 0.25″ outer padding.
 
-```mermaid
-flowchart TB
-    G1["main_tray group:<br/>large_tray (6×12)"]
-    G1 --> P1["Single-unit candidates:<br/>original (6×12) ★, rotated (12×6)<br/>Place original at (0.25, 0.25)"]
-    P1 --> S1["Shelf 1 opened:<br/>y=0.25, height=12,<br/>group=main_tray, xCursor=6.5"]
-
-    G2["eating group:<br/>fork (3×10), spoon (3×10), knife (3×10)"]
-    G2 --> SC["Median item shape: 3W × 10D → itemsAreTall=true<br/>Preferred arrangement: row<br/><br/>Candidates &amp; scores:<br/>Row(false) 9.2×10 = 92 × 0.75 = 69 ★<br/>Column(true) 10×9.2 = 92 × 1.5 = 138<br/>Wrap(true) 10×9.2 = 92 × 1.5 = 138"]
-    SC --> P2["Try Row(false) 9.2×10:<br/>Strategy A (same-group eating shelf): none<br/>Strategy B (new shelf): nextY = 0.25 + 12 + 0.25 = 12.5,<br/>12.5 + 10 = 22.5 ≤ 21.75? NO → fail<br/>Strategy C (cross-group shelf 1): availW = 14 − 6.5 − 0.25 = 7.25,<br/>9.2 &gt; 7.25 → fail<br/><br/>Try next candidate: Column(true) 10×9.2"]
-    P2 --> P3["Column(true): nextY = 12.5,<br/>12.5 + 9.2 = 21.7 ≤ 21.75 ✓<br/>Place at (0.25, 12.5)"]
-    P3 --> R["Items committed (drawer space):<br/>fork at (0.25, 12.5, 10W × 3D)<br/>spoon at (0.25, 15.6, 10W × 3D)<br/>knife at (0.25, 18.7, 10W × 3D)"]
-```
+![Concrete layout example: utensils in 14 by 22 drawer](docs/diagrams/06-concrete-example.svg)
 
 Result: large_tray on shelf 1, the eating group as a tight stacked column on shelf 2 — fork directly above spoon directly above knife, separated only by 0.1″ gaps. Cutlery stays together; you'd never get fork in one row and knife in another. In a wider drawer where Row(false) fits, the same algorithm produces the canonical side-by-side cutlery arrangement instead.
 
@@ -507,16 +375,7 @@ The generator emits:
 
 #### Module geometry
 
-```mermaid
-flowchart LR
-    Layout[DrawerLayout<br/>items in inches] --> Gen[PrintModelGenerator.makeOrganizer]
-    Gen --> Apply["Apply tolerance<br/>(shrink by ±0.5 mm)"]
-    Apply --> Mod[PrintableModule<br/>outerW, outerD, h in mm]
-    Mod --> Mesh[makeMesh per module:<br/>outer box + inner cavity + rim]
-    Mod --> Combined[makeCombinedMesh:<br/>all modules in drawer space]
-    Mesh --> Export
-    Combined --> Export[STL / 3MF / G-code consumers]
-```
+![3D mesh generation pipeline](docs/diagrams/07-mesh-generation.svg)
 
 A `PrintableModule` is fully parametric:
 
@@ -547,24 +406,7 @@ Real general-purpose slicers (PrusaSlicer, CuraEngine) are massive C++ codebases
 
 #### The pipeline
 
-```mermaid
-flowchart TB
-    Org[PrintableOrganizer<br/>modules + settings + filament] --> Choose{printer.id == bambu_a1?}
-
-    Choose -->|No| DSE[DiagnosticSlicerEngine<br/>geometry validation +<br/>filament/time estimate]
-    DSE --> TME[ThreeMFExporter<br/>5-file .3mf]
-
-    Choose -->|Yes| BSE[BambuA1SlicerEngine.<br/>sliceWithContext]
-    BSE --> P1[For each module:<br/>TrayLayerPlanner.plan]
-    P1 --> Layers[LayerPlan array<br/>per module]
-    Layers --> Merge[Merge layers across<br/>modules at each Z step]
-    Merge --> Skirt[SkirtPlanner adds<br/>skirt loops on layer 0]
-    Skirt --> ACP[AMSLiteColorPlanner:<br/>per-layer filament ranges<br/>+ per-slot mm/g usage]
-    ACP --> Emit[BambuA1GcodeEmitter:<br/>HEADER_BLOCK / CONFIG_BLOCK /<br/>EXECUTABLE_BLOCK]
-    Emit --> Pkg[BambuGcode3MFPackager:<br/>16 OPC files in a ZIP]
-    Pkg --> Thumbs[BambuThumbnailRenderer:<br/>plate_1.png + small + top + pick]
-    Thumbs --> File[.gcode.3mf<br/>opens in Bambu Studio]
-```
+![Bambu A1 slicer pipeline](docs/diagrams/08-slicer-pipeline.svg)
 
 #### Per-layer planning (`TrayLayerPlanner`)
 
@@ -672,22 +514,7 @@ After you set up your slicer parameters but before you export, Drawer shows you 
 
 `Print3DPreview` is a SwiftUI `View` wrapping SceneKit (`SceneView`). On every `organizer` / `plate` / `assignment` change, it rebuilds the scene:
 
-```mermaid
-flowchart LR
-    Trigger[organizer / plate / assignment changed] --> Build[rebuildScene]
-    Build --> Floor[Drawer floor box<br/>matte gray]
-    Build --> Frame[Drawer rim:<br/>4 thin bars]
-    Build --> Modules[For each module:<br/>makeModuleNode]
-    Modules --> Mesh[PrintModelGenerator.makeMesh]
-    Mesh --> Geo[SCNGeometry:<br/>swap Y↔Z, flip winding]
-    Geo --> Color[colorForSlot:<br/>look up assignment.slot<br/>at .outerWall feature]
-    Color --> Mat[SCNMaterial:<br/>physically-based, low metalness]
-    Mat --> Node[SCNNode]
-    Node --> Place["Position by drawer-center offset:<br/>(originX − W/2, 0, originY − D/2)"]
-    Build --> Cam[Make camera:<br/>3/4 iso view, FOV 38°,<br/>distance scales with drawer size]
-    Build --> Lights[3 lights:<br/>warm key + cool rim + ambient]
-    Build --> Rotator[Wrap in SCNNode<br/>'rotator' for auto-spin]
-```
+![3D preview scene-rebuild flow](docs/diagrams/09-preview-rebuild.svg)
 
 The user can:
 - **Drag** to rotate (`SceneView` `.allowsCameraControl` does this for free)
@@ -759,127 +586,7 @@ Button { onScan(); scanBounce += 1 } label: {
 
 The full type graph that flows through the app:
 
-```mermaid
-classDiagram
-    class DrawerMeasurement {
-        +Double widthInches
-        +Double depthInches
-        +Double heightInches
-        +MeasurementSource source
-        +Double confidenceScore
-        +Bool heightMeasured
-        +NormalizedQuad? capturedQuad
-    }
-
-    class MeasurementSource {
-        <<enum>>
-        lidar
-        cameraReference
-        cameraEstimate
-        manual
-        defaultEstimate
-    }
-
-    class NormalizedQuad {
-        +NormalizedPoint topLeft
-        +NormalizedPoint topRight
-        +NormalizedPoint bottomLeft
-        +NormalizedPoint bottomRight
-    }
-
-    class DrawerPurpose {
-        <<enum>>
-        utensils
-        junkDrawer
-        spices
-        bakingTools
-        officeSupplies
-        linens
-        custom
-    }
-
-    class OrganizerTemplate {
-        +String id
-        +String name
-        +Double width
-        +Double height
-        +Double hue
-        +Int priority
-        +String group
-        +Int groupOrder
-    }
-
-    class OrganizerItem {
-        +UUID id
-        +String name
-        +Double x, y, width, height
-        +Double colorHue, colorSaturation, colorBrightness
-    }
-
-    class DrawerLayout {
-        +DrawerMeasurement measurement
-        +DrawerPurpose purpose
-        +Array~OrganizerItem~ items
-        +Double coveragePercentage
-        +Array~String~ unplacedTemplates
-        +Array~String~ warnings
-        +Array~String~ selectedTemplateIds
-    }
-
-    class SavedDrawer {
-        +UUID id
-        +String name
-        +Date date
-        +DrawerLayout layout
-        +Data? photoData
-    }
-
-    class PrintableModule {
-        +UUID id
-        +Double outerWidthMm, outerDepthMm, heightMm
-        +Double originXMm, originYMm
-        +Double wallThicknessMm
-        +String tintHex
-    }
-
-    class PrintableOrganizer {
-        +Array~PrintableModule~ modules
-        +Double drawerInteriorWidthMm
-        +Double drawerInteriorDepthMm
-        +PrintSettings settings
-        +FilamentProfile filament
-        +PrinterProfile printer
-        +DrawerPurpose purpose
-    }
-
-    class AMSLitePlate {
-        +Array~FilamentProfile?~ slots
-    }
-
-    class AMSLiteAssignment {
-        +Int defaultSlot
-        +Dictionary moduleSlot
-        +Dictionary featureSlot
-        +Dictionary moduleFeatureSlot
-    }
-
-    class FilamentProfile {
-        +FilamentMaterial material
-        +FilamentColor color
-    }
-
-    DrawerMeasurement --> MeasurementSource
-    DrawerMeasurement --> NormalizedQuad
-    DrawerLayout --> DrawerMeasurement
-    DrawerLayout --> DrawerPurpose
-    DrawerLayout --> OrganizerItem
-    SavedDrawer --> DrawerLayout
-    OrganizerTemplate --> DrawerPurpose : grouped by
-    PrintableOrganizer --> PrintableModule
-    PrintableOrganizer --> DrawerPurpose
-    AMSLitePlate --> FilamentProfile
-    AMSLiteAssignment --> AMSLitePlate
-```
+![Data model class diagram](docs/diagrams/10-data-model.svg)
 
 Two distinct units live side by side in the type system:
 - **Inches** are used everywhere on the layout side (`DrawerMeasurement`, `OrganizerItem`).

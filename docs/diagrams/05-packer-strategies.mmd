@@ -1,0 +1,11 @@
+flowchart TB
+    Start[Next group's best unit] --> A{Same-group<br/>shelf with room?}
+    A -->|Yes| PA[Place on it<br/>strategy A]
+    A -->|No| B{New shelf<br/>fits below?}
+    B -->|Yes| PB[Open new shelf<br/>strategy B]
+    B -->|No| C{Any cross-group<br/>shelf with room?}
+    C -->|Yes| PC[Slot in there<br/>strategy C]
+    C -->|No| FB[Fall back to<br/>per-item placement]
+    FB --> Indiv[Place each template<br/>individually,<br/>same 3 strategies]
+    Indiv --> Mark[Items that don't fit<br/>→ unplacedTemplates]
+    PA & PB & PC --> Done[Group placed]

@@ -1,0 +1,15 @@
+flowchart LR
+    Start[CaptureView opens] --> Has{LiDAR available?}
+    Has -->|Yes| LiDAR[LiDARScanService<br/>ARKit + scene depth]
+    Has -->|No| AVF[CameraService<br/>AVCapture session]
+    LiDAR --> Live[Live overlay locks<br/>onto drawer rim]
+    AVF --> Hint[UI hint:<br/>'place a credit card']
+    Live --> Lock{state == .stable?}
+    Lock -->|No, still searching| LiDAR
+    Lock -->|Yes| Capture1[Tap shutter]
+    Hint --> Capture2[Tap shutter]
+    Capture1 --> Final[finalizedMeasurement<br/>averaged across 6+ samples]
+    Capture2 --> Vision[VNDetectRectanglesRequest<br/>find drawer + card]
+    Vision --> Scale[Scale factor =<br/>cardPixels / 3.370″]
+    Scale --> Final
+    Final --> Review[MeasurementReviewView]

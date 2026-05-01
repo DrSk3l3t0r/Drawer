@@ -1,0 +1,8 @@
+flowchart LR
+    Layout[DrawerLayout<br/>items in inches] --> Gen[PrintModelGenerator.makeOrganizer]
+    Gen --> Apply["Apply tolerance<br/>(shrink by ±0.5 mm)"]
+    Apply --> Mod[PrintableModule<br/>outerW, outerD, h in mm]
+    Mod --> Mesh[makeMesh per module:<br/>outer box + inner cavity + rim]
+    Mod --> Combined[makeCombinedMesh:<br/>all modules in drawer space]
+    Mesh --> Export
+    Combined --> Export[STL / 3MF / G-code consumers]

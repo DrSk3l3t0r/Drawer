@@ -1,0 +1,40 @@
+flowchart TB
+    classDef view fill:#1e3a5f,stroke:#4a90d9,color:#fff
+    classDef engine fill:#3d2c5e,stroke:#8e6fc1,color:#fff
+    classDef slicer fill:#1f4a3a,stroke:#4caf80,color:#fff
+    classDef bambu fill:#5e3a1c,stroke:#d18a4a,color:#fff
+    classDef data fill:#4a1f3d,stroke:#b85488,color:#fff
+
+    App[DrawerApp]:::view --> CV[ContentView<br/>Home / Saved tabs<br/>+ Liquid Glass bar]:::view
+
+    CV --> Cap[CaptureView]:::view
+    CV --> SD[SavedDrawersView]:::view
+
+    Cap --> CS[CameraService<br/>+ LiDARScanService]:::engine
+    Cap --> ME[MeasurementEngine<br/>credit-card scaling]:::engine
+    Cap --> MR[MeasurementReviewView<br/>quad adjustment]:::view
+
+    MR --> PS[PurposeSelectionView]:::view
+    PS --> LE[LayoutEngine<br/>group-aware packer]:::engine
+    LE --> LR[LayoutResultView<br/>blueprint + actions]:::view
+
+    LR --> ED[EditOrganizersSheet]:::view
+    LR --> DS[DrawerStore<br/>UserDefaults]:::data
+    LR --> PP[PrintPrepView<br/>AMS lite + slicer settings]:::view
+
+    PP --> PMG[PrintModelGenerator<br/>layout → meshes]:::engine
+    PP --> P3D[Print3DPreview<br/>SceneKit viewer]:::view
+    PP --> SP[SlicerProvider]:::slicer
+
+    SP -->|Bambu A1| BSE[BambuA1SlicerEngine]:::bambu
+    SP -->|Other| DSE[DiagnosticSlicerEngine]:::slicer
+
+    BSE --> TLP[TrayLayerPlanner<br/>per-layer toolpaths]:::bambu
+    BSE --> ACP[AMSLiteColorPlanner<br/>slot ranges + usage]:::bambu
+    BSE --> BGE[BambuA1GcodeEmitter<br/>HEADER / CONFIG / EXECUTABLE]:::bambu
+    BSE --> BPK[BambuGcode3MFPackager<br/>16-file OPC ZIP]:::bambu
+    BPK --> BTR[BambuThumbnailRenderer]:::bambu
+
+    DSE --> TME[ThreeMFExporter<br/>generic .3mf]:::slicer
+
+    SD --> DS
