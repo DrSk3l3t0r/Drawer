@@ -20,7 +20,6 @@ struct ContentView: View {
     @State private var generatedLayout: DrawerLayout?
 
     @State private var selectedTab = 0
-    @State private var animateGlow = false
     @State private var hasAppeared = false
 
     var body: some View {
@@ -107,26 +106,20 @@ struct ContentView: View {
     
     private var homeTab: some View {
         ScrollView {
-            VStack(spacing: 32) {
-                Spacer().frame(height: 20)
-                
-                // App header
+            VStack(spacing: 36) {
+                Spacer().frame(height: 32)
+
+                // App header (logo + title)
                 appHeader
-                
-                // New scan button
-                newScanButton
-                
-                // Quick tips
+
+                // How it works (the only "content" section on home —
+                // scanning is launched from the bar's FAB, saved drawers
+                // live on the Saved tab, so there's no need to duplicate
+                // those affordances here).
                 tipsSection
-                
-                // Recent drawer
-                if let recent = store.savedDrawers.first {
-                    recentSection(recent)
-                }
 
                 // Bottom inset so the floating Liquid Glass bar doesn't
-                // overlap the most-recent card on devices with a home
-                // indicator (110 pt was clipping the card on iPhone 17 Pro).
+                // overlap content on devices with a home indicator.
                 Spacer().frame(height: 132)
             }
         }
@@ -170,7 +163,6 @@ struct ContentView: View {
                             radius: 20)
                     .symbolEffect(.pulse.byLayer, options: .repeat(.continuous))
             }
-            .onAppear { animateGlow = true }
 
             Text("Drawer")
                 .font(.system(size: 32, weight: .bold, design: .rounded))
@@ -180,64 +172,6 @@ struct ContentView: View {
                 .font(.subheadline)
                 .foregroundStyle(.white.opacity(0.5))
         }
-    }
-    
-    // MARK: - New Scan Button
-    
-    private var newScanButton: some View {
-        Button(action: {
-            UIImpactFeedbackGenerator(style: .medium).impactOccurred()
-            showCapture = true
-        }) {
-            HStack(spacing: 14) {
-                ZStack {
-                    Circle()
-                        .fill(.white.opacity(0.15))
-                        .frame(width: 50, height: 50)
-                    Circle()
-                        .stroke(.white.opacity(0.35), lineWidth: 1)
-                        .frame(width: 60, height: 60)
-                        .scaleEffect(animateGlow ? 1.05 : 0.95)
-                        .opacity(animateGlow ? 0.6 : 0.2)
-                    Image(systemName: "camera.viewfinder")
-                        .font(.system(size: 22))
-                        .foregroundStyle(.white)
-                        .symbolEffect(.pulse, options: .repeat(.continuous))
-                }
-
-                VStack(alignment: .leading, spacing: 4) {
-                    Text("Scan New Drawer")
-                        .font(.headline)
-                        .foregroundStyle(.white)
-                    Text("Photo • Measure • Organize")
-                        .font(.caption)
-                        .foregroundStyle(.white.opacity(0.7))
-                }
-
-                Spacer()
-
-                Image(systemName: "arrow.right.circle.fill")
-                    .font(.system(size: 28))
-                    .foregroundStyle(.white.opacity(0.85))
-            }
-            .padding(20)
-            .background(
-                LinearGradient(
-                    colors: [
-                        Color(hue: 0.6, saturation: 0.7, brightness: 0.7),
-                        Color(hue: 0.7, saturation: 0.6, brightness: 0.6)
-                    ],
-                    startPoint: .leading,
-                    endPoint: .trailing
-                )
-            )
-            .clipShape(RoundedRectangle(cornerRadius: 20))
-            .shadow(color: Color(hue: 0.65, saturation: 0.8, brightness: 0.7).opacity(0.45),
-                    radius: 18, y: 10)
-        }
-        .buttonStyle(PressableStyle(scale: 0.98))
-        .padding(.horizontal, 20)
-        .sensoryFeedback(.impact(weight: .medium), trigger: showCapture) { _, new in new }
     }
     
     // MARK: - Tips
@@ -271,26 +205,6 @@ struct ContentView: View {
             RoundedRectangle(cornerRadius: 16)
                 .fill(.white.opacity(0.04))
         )
-        .padding(.horizontal, 20)
-    }
-    
-    // MARK: - Recent
-    
-    private func recentSection(_ drawer: SavedDrawer) -> some View {
-        VStack(alignment: .leading, spacing: 12) {
-            HStack {
-                Text("MOST RECENT")
-                    .font(.system(size: 11, weight: .bold, design: .monospaced))
-                    .foregroundStyle(.white.opacity(0.3))
-                    .tracking(2)
-                Spacer()
-            }
-            
-            SavedDrawerCard(drawer: drawer)
-                .onTapGesture {
-                    selectedTab = 1
-                }
-        }
         .padding(.horizontal, 20)
     }
     
@@ -347,49 +261,50 @@ struct LiquidGlassBottomBar: View {
     @State private var scanBounce = 0
 
     var body: some View {
-        // Wrap the bar pill and the FAB in a single GlassEffectContainer so
-        // they share one refraction context — that's what makes them feel
-        // like one cohesive Liquid Glass element rather than two glued-on
-        // surfaces.
-        GlassEffectContainer(spacing: 18) {
-            ZStack {
-                // The bar — single rounded glass capsule with tabs spread on
-                // either side of the centered FAB cutout.
-                HStack(spacing: 0) {
-                    barTab(icon: "house.fill", label: "Home", index: 0)
-                    Spacer().frame(width: 78)   // room for the floating FAB
-                    barTab(icon: "archivebox.fill", label: "Saved", index: 1)
-                }
-                .padding(.horizontal, 8)
-                .padding(.vertical, 8)
-                .glassEffect(.regular, in: Capsule())
-
-                // Scan FAB — interactive, tinted glass that floats above
-                // center. Tint kept low so the underlying glass refraction
-                // shows through (a higher-opacity tint reads as a flat
-                // solid colored circle).
-                Button {
-                    onScan()
-                    scanBounce += 1
-                } label: {
-                    Image(systemName: "camera.viewfinder")
-                        .font(.system(size: 22, weight: .semibold))
-                        .foregroundStyle(.white)
-                        .frame(width: 58, height: 58)
-                        .symbolEffect(.bounce, value: scanBounce)
-                }
-                .buttonStyle(.plain)
-                .glassEffect(
-                    .regular
-                        .tint(Color(hue: 0.6, saturation: 0.7, brightness: 0.95).opacity(0.30))
-                        .interactive(),
-                    in: Circle()
-                )
-                .offset(y: -8)
-                .accessibilityLabel("Scan New Drawer")
-                .sensoryFeedback(.impact(weight: .medium), trigger: scanBounce)
+        // Two separate glass surfaces (bar pill and FAB) — no
+        // GlassEffectContainer here. Wrapping them produced visual artifacts
+        // where the inner selection pill subtracted from the outer bar's
+        // glass, making the selected tab read as a dark hole. With separate
+        // surfaces each gets its own clean refraction.
+        ZStack {
+            // The bar — single rounded glass capsule with tabs spread on
+            // either side of the centered FAB cutout.
+            HStack(spacing: 0) {
+                barTab(icon: "house.fill", label: "Home", index: 0)
+                Spacer().frame(width: 78)   // room for the floating FAB
+                barTab(icon: "archivebox.fill", label: "Saved", index: 1)
             }
+            .padding(.horizontal, 8)
+            .padding(.vertical, 8)
+            .glassEffect(.regular, in: Capsule())
+
+            // Scan FAB — interactive, tinted glass that floats above center.
+            Button {
+                scanBounce += 1
+                onScan()
+            } label: {
+                Image(systemName: "camera.viewfinder")
+                    .font(.system(size: 22, weight: .semibold))
+                    .foregroundStyle(.white)
+                    .frame(width: 64, height: 64)
+                    .symbolEffect(.bounce, value: scanBounce)
+                    .contentShape(Circle())   // explicit hit shape for reliable taps
+            }
+            .buttonStyle(.plain)
+            .glassEffect(
+                .regular
+                    .tint(Color(hue: 0.6, saturation: 0.7, brightness: 0.95).opacity(0.45))
+                    .interactive(),
+                in: Circle()
+            )
+            .offset(y: -10)
+            .accessibilityLabel("Scan New Drawer")
+            .sensoryFeedback(.impact(weight: .medium), trigger: scanBounce)
         }
+        // Extend the ZStack's hit-test region above the bar so the FAB's
+        // upward offset doesn't put its top edge outside the parent's
+        // bounds — that was causing the "FAB doesn't always tap" issue.
+        .padding(.top, 12)
         .sensoryFeedback(.selection, trigger: selectedTab)
     }
 
@@ -412,14 +327,21 @@ struct LiquidGlassBottomBar: View {
             .frame(height: 44)
             .background {
                 if isSelected {
-                    // Selected pill is itself a small glass surface so it
-                    // reads as glass-on-glass, not as an opaque white capsule
-                    // sitting on top of glass.
+                    // Simple translucent capsule — readable as a selection
+                    // indicator on top of the bar's glass without trying to
+                    // be its own glass surface (which produced visual
+                    // subtraction artifacts inside the parent glass).
                     Capsule()
-                        .fill(Color.clear)
-                        .glassEffect(
-                            .regular.tint(Color.white.opacity(0.12)),
-                            in: Capsule()
+                        .fill(.white.opacity(0.20))
+                        .overlay(
+                            Capsule().strokeBorder(
+                                LinearGradient(
+                                    colors: [.white.opacity(0.35), .white.opacity(0.08)],
+                                    startPoint: .top,
+                                    endPoint: .bottom
+                                ),
+                                lineWidth: 0.5
+                            )
                         )
                         .matchedGeometryEffect(id: "tabSelection", in: tabSelectionNS)
                         .padding(.horizontal, 6)

@@ -614,30 +614,53 @@ struct PrintPrepView: View {
         }
     }
 
+    /// Recompute just the lightweight estimate (filament grams + time +
+    /// warnings) used by the live UI. Earlier this called the full Bambu A1
+    /// slicer on every settings change — slicing 1,000+ layers, emitting
+    /// the whole G-code body, and ZIP-packaging it on each slider tick is
+    /// what was making the print-settings sliders laggy. The real slice
+    /// happens only on `runExport()`.
     private func recomputeSlice() {
         sliceError = nil
-        let engine = SlicerProvider.engine(for: printer)
-        do {
-            if isBambuA1, let bambu = engine as? BambuA1SlicerEngine {
-                let ctx = BambuSliceContext(
-                    organizer: organizer,
-                    amsPlate: amsPlate,
-                    coloringPolicy: coloringPolicy,
-                    assignment: assignment
-                )
-                let out = try bambu.sliceWithContext(ctx,
-                    fileBaseName: "drawer_\(layout.purpose.rawValue)_preview")
-                sliceJob = out.jobSummary
-                // Don't store the preview file as the export result — only
-                // the user's explicit export action does that.
-                try? FileManager.default.removeItem(at: out.packageURL)
-            } else {
-                sliceJob = try engine.slice(organizer: organizer)
-            }
-        } catch {
+
+        guard !organizer.modules.isEmpty else {
             sliceJob = nil
-            sliceError = error.localizedDescription
+            sliceError = "No modules to estimate."
+            return
         }
+
+        // Filament: sum of per-module estimates from the geometry. Cheap.
+        let grams = organizer.totalGrams
+        // ~3 g/min throughput for Bambu A1 at standard quality.
+        let minutes = max(8.0, grams / 3.0)
+
+        var warnings: [String] = []
+        if organizer.settings.wallThicknessMm < 0.8 {
+            warnings.append("Walls thinner than 0.8 mm may print poorly.")
+        }
+        if minutes > 360 {
+            warnings.append("Estimated print time exceeds 6 hours.")
+        }
+        if amsPlate.activeFilaments.count > 1 && grams > 200 {
+            warnings.append("Multi-color print over 200 g — flush volume can be significant.")
+        }
+
+        let materialName = amsPlate.activeFilaments.first?.profile.material.displayName ?? "Filament"
+        let summary: String
+        if isBambuA1 {
+            summary = "\(organizer.modules.count) modules • \(amsPlate.activeFilaments.count) filament(s) • \(materialName) • \(String(format: "%.0f", grams)) g • approx \(formatMinutes(minutes))"
+        } else {
+            summary = "\(organizer.modules.count) modules • \(String(format: "%.0f", grams)) g \(materialName) • approx \(formatMinutes(minutes))"
+        }
+
+        sliceJob = SlicedPrintJob(
+            capability: isBambuA1 ? .fullToolpath : .diagnostic,
+            summary: summary,
+            warnings: warnings,
+            estimatedPrintTimeMinutes: minutes,
+            estimatedFilamentGrams: grams,
+            outputURL: nil
+        )
     }
 
     private func runExport() {
