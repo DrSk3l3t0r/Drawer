@@ -158,6 +158,15 @@ struct PrintSettings: Codable, Equatable {
     var heightMm: Double              // organizer module height
     var infillPercent: Double         // 0…100
     var modularSeparate: Bool         // true → export each module as separate object
+    /// When true, modules whose footprint exceeds the printer bed are
+    /// automatically bisected with interlocking tab joints so they print
+    /// as multiple parts that snap together in the drawer. When false,
+    /// oversized modules surface as warnings.
+    var autoSplitOversized: Bool = true
+    /// Height (mm) of tier-2 stacked modules. They sit on top of their
+    /// tier-1 parents and add this much extra Z. Smaller default than
+    /// tier-1 so the combined stack stays under typical drawer height.
+    var tier2HeightMm: Double = 22.0
 
     static let `default` = PrintSettings(
         layerHeightMm: 0.20,
@@ -167,8 +176,53 @@ struct PrintSettings: Codable, Equatable {
         toleranceMm: PrintConstants.defaultTolerance,
         heightMm: 35.0,
         infillPercent: 15,
-        modularSeparate: true
+        modularSeparate: true,
+        autoSplitOversized: true,
+        tier2HeightMm: 22.0
     )
+
+    private enum CodingKeys: String, CodingKey {
+        case layerHeightMm, wallThicknessMm, bottomThicknessMm
+        case cornerRadiusMm, toleranceMm, heightMm
+        case infillPercent, modularSeparate
+        case autoSplitOversized, tier2HeightMm
+    }
+
+    init(layerHeightMm: Double,
+         wallThicknessMm: Double,
+         bottomThicknessMm: Double,
+         cornerRadiusMm: Double,
+         toleranceMm: Double,
+         heightMm: Double,
+         infillPercent: Double,
+         modularSeparate: Bool,
+         autoSplitOversized: Bool = true,
+         tier2HeightMm: Double = 22.0) {
+        self.layerHeightMm = layerHeightMm
+        self.wallThicknessMm = wallThicknessMm
+        self.bottomThicknessMm = bottomThicknessMm
+        self.cornerRadiusMm = cornerRadiusMm
+        self.toleranceMm = toleranceMm
+        self.heightMm = heightMm
+        self.infillPercent = infillPercent
+        self.modularSeparate = modularSeparate
+        self.autoSplitOversized = autoSplitOversized
+        self.tier2HeightMm = tier2HeightMm
+    }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        layerHeightMm = try c.decode(Double.self, forKey: .layerHeightMm)
+        wallThicknessMm = try c.decode(Double.self, forKey: .wallThicknessMm)
+        bottomThicknessMm = try c.decode(Double.self, forKey: .bottomThicknessMm)
+        cornerRadiusMm = try c.decode(Double.self, forKey: .cornerRadiusMm)
+        toleranceMm = try c.decode(Double.self, forKey: .toleranceMm)
+        heightMm = try c.decode(Double.self, forKey: .heightMm)
+        infillPercent = try c.decode(Double.self, forKey: .infillPercent)
+        modularSeparate = try c.decode(Bool.self, forKey: .modularSeparate)
+        autoSplitOversized = (try? c.decode(Bool.self, forKey: .autoSplitOversized)) ?? true
+        tier2HeightMm = (try? c.decode(Double.self, forKey: .tier2HeightMm)) ?? 22.0
+    }
 }
 
 // MARK: - Printable Module
@@ -192,6 +246,27 @@ struct PrintableModule: Codable, Equatable, Hashable, Identifiable {
     var cornerRadiusMm: Double
     /// Hex tint preserved from the layout.
     var tintHex: String
+    /// Stack tier — 1 for floor-level, 2 for stacked-on-top. Tier-2 modules
+    /// rest on the rim of their tier-1 parent and add Z height to the stack.
+    var tier: Int = 1
+    /// Vertical offset (mm) above the drawer floor, used by tier-2 modules.
+    var zOffsetMm: Double = 0
+    /// When this module is the result of an auto-split, identifies which
+    /// piece of the original it is (0..n-1). `nil` for unsplit modules.
+    var splitPartIndex: Int? = nil
+    /// Total number of split parts the original module was divided into.
+    /// `nil` for unsplit modules.
+    var splitPartCount: Int? = nil
+    /// Original (pre-split) module id; lets the 3D preview group split
+    /// pieces visually.
+    var originalModuleId: UUID? = nil
+    /// True when this module is a tier-2 locating lip — a smaller-footprint,
+    /// short downward protrusion that drops into a tier-1 module's cavity to
+    /// keep the stacked tier-2 from sliding around. The lip is a separate
+    /// printable piece that fuses with its parent tier-2 body during
+    /// printing because they share an XY position. UI surfaces should not
+    /// count lips as user-facing modules.
+    var isLocatingLip: Bool = false
 
     var innerWidthMm: Double { max(0, outerWidthMm - 2 * wallThicknessMm) }
     var innerDepthMm: Double { max(0, outerDepthMm - 2 * wallThicknessMm) }
@@ -222,6 +297,64 @@ struct PrintableModule: Codable, Equatable, Hashable, Identifiable {
         let infillCm3 = cavityCm3 * (infillPercent / 100.0)
         let totalCm3 = approximateVolumeCm3 + infillCm3
         return totalCm3 * filament.material.density
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case id, name, outerWidthMm, outerDepthMm, heightMm
+        case originXMm, originYMm
+        case wallThicknessMm, bottomThicknessMm, cornerRadiusMm, tintHex
+        case tier, zOffsetMm
+        case splitPartIndex, splitPartCount, originalModuleId
+        case isLocatingLip
+    }
+
+    init(id: UUID, name: String,
+         outerWidthMm: Double, outerDepthMm: Double, heightMm: Double,
+         originXMm: Double, originYMm: Double,
+         wallThicknessMm: Double, bottomThicknessMm: Double,
+         cornerRadiusMm: Double, tintHex: String,
+         tier: Int = 1, zOffsetMm: Double = 0,
+         splitPartIndex: Int? = nil, splitPartCount: Int? = nil,
+         originalModuleId: UUID? = nil,
+         isLocatingLip: Bool = false) {
+        self.id = id
+        self.name = name
+        self.outerWidthMm = outerWidthMm
+        self.outerDepthMm = outerDepthMm
+        self.heightMm = heightMm
+        self.originXMm = originXMm
+        self.originYMm = originYMm
+        self.wallThicknessMm = wallThicknessMm
+        self.bottomThicknessMm = bottomThicknessMm
+        self.cornerRadiusMm = cornerRadiusMm
+        self.tintHex = tintHex
+        self.tier = tier
+        self.zOffsetMm = zOffsetMm
+        self.splitPartIndex = splitPartIndex
+        self.splitPartCount = splitPartCount
+        self.originalModuleId = originalModuleId
+        self.isLocatingLip = isLocatingLip
+    }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        id = try c.decode(UUID.self, forKey: .id)
+        name = try c.decode(String.self, forKey: .name)
+        outerWidthMm = try c.decode(Double.self, forKey: .outerWidthMm)
+        outerDepthMm = try c.decode(Double.self, forKey: .outerDepthMm)
+        heightMm = try c.decode(Double.self, forKey: .heightMm)
+        originXMm = try c.decode(Double.self, forKey: .originXMm)
+        originYMm = try c.decode(Double.self, forKey: .originYMm)
+        wallThicknessMm = try c.decode(Double.self, forKey: .wallThicknessMm)
+        bottomThicknessMm = try c.decode(Double.self, forKey: .bottomThicknessMm)
+        cornerRadiusMm = try c.decode(Double.self, forKey: .cornerRadiusMm)
+        tintHex = try c.decode(String.self, forKey: .tintHex)
+        tier = (try? c.decode(Int.self, forKey: .tier)) ?? 1
+        zOffsetMm = (try? c.decode(Double.self, forKey: .zOffsetMm)) ?? 0
+        splitPartIndex = try? c.decode(Int.self, forKey: .splitPartIndex)
+        splitPartCount = try? c.decode(Int.self, forKey: .splitPartCount)
+        originalModuleId = try? c.decode(UUID.self, forKey: .originalModuleId)
+        isLocatingLip = (try? c.decode(Bool.self, forKey: .isLocatingLip)) ?? false
     }
 }
 

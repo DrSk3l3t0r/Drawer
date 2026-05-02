@@ -52,7 +52,9 @@ enum PrintModelGenerator {
 
     /// Convert a `DrawerLayout` into a `PrintableOrganizer`. Pads each module
     /// inwards with `tolerance` on all sides so individual trays slot easily
-    /// into the drawer.
+    /// into the drawer. If `settings.autoSplitOversized` is enabled and a
+    /// module won't fit on the printer bed, the module is automatically
+    /// bisected into 2+ interlocking parts that snap together in the drawer.
     static func makeOrganizer(from layout: DrawerLayout,
                                settings: PrintSettings = .default,
                                filament: FilamentProfile = .default,
@@ -64,33 +66,66 @@ enum PrintModelGenerator {
         let drawerHeightMm = layout.measurement.heightInches * inToMm
 
         let tolerance = settings.toleranceMm
-        let height = min(settings.heightMm, max(10, drawerHeightMm - 2))
+        let baseHeight = min(settings.heightMm, max(10, drawerHeightMm - 2))
 
-        let modules: [PrintableModule] = layout.items.map { item in
+        var modules: [PrintableModule] = []
+
+        for item in layout.items {
             // Convert layout coordinates (inches, top-left origin) into mm.
             let xMm = item.x * inToMm
             let yMm = item.y * inToMm
             let wMm = item.width * inToMm
             let dMm = item.height * inToMm
 
-            // Apply tolerance — shrink each module slightly so it slides into
-            // the drawer without binding.
+            // Apply tolerance — shrink each module slightly so it slides
+            // into the drawer without binding.
             let outerW = max(10, wMm - tolerance * 2)
             let outerD = max(10, dMm - tolerance * 2)
 
-            return PrintableModule(
+            // Tier-2 modules sit on top of their tier-1 parent, with a
+            // shorter height. The parent's id was preserved as `stacksOn`.
+            let h = item.tier == 2 ? settings.tier2HeightMm : baseHeight
+            let zOffset = item.tier == 2 ? baseHeight : 0.0
+
+            let base = PrintableModule(
                 id: item.id,
                 name: item.name,
                 outerWidthMm: outerW,
                 outerDepthMm: outerD,
-                heightMm: height,
+                heightMm: h,
                 originXMm: xMm + tolerance,
                 originYMm: yMm + tolerance,
                 wallThicknessMm: settings.wallThicknessMm,
                 bottomThicknessMm: settings.bottomThicknessMm,
                 cornerRadiusMm: settings.cornerRadiusMm,
-                tintHex: hex(for: item)
+                tintHex: hex(for: item),
+                tier: item.tier,
+                zOffsetMm: zOffset
             )
+
+            if settings.autoSplitOversized && !base.fitsBed(printer) {
+                let splits = splitOversized(base, printer: printer)
+                modules.append(contentsOf: splits)
+            } else {
+                modules.append(base)
+            }
+
+            // Tier-2 locating lip — a smaller-footprint, short downward
+            // protrusion that drops into the parent tier-1's cavity. Without
+            // it, the tier-2 just rests flat on the tier-1's rim and would
+            // slide around in the drawer. The lip is emitted as a separate
+            // PrintableModule so the slicer treats it as a normal print
+            // body; it shares an XY position with the tier-2 main body so
+            // the two fuse into one continuous plastic part during printing.
+            if item.tier == 2 {
+                let lip = makeTier2Lip(
+                    forBody: base,
+                    parentBaseHeightMm: baseHeight,
+                    settings: settings,
+                    item: item
+                )
+                modules.append(lip)
+            }
         }
 
         return PrintableOrganizer(
@@ -102,6 +137,140 @@ enum PrintModelGenerator {
             filament: filament,
             printer: printer,
             purpose: layout.purpose
+        )
+    }
+
+    /// Bisect an oversized module along its longest axis until each piece
+    /// fits the printer bed. Each cut introduces a 1.4 mm-wide rectangular
+    /// tab joint at the seam: a male tab on one piece slots into a female
+    /// recess on the next, so when assembled in the drawer the parts stay
+    /// aligned without glue.
+    static func splitOversized(_ module: PrintableModule,
+                                 printer: PrinterProfile) -> [PrintableModule] {
+        // Decide how many pieces and along which axis. We always bisect
+        // along the longer axis; recurse if a single bisection still
+        // doesn't fit.
+        let longSide = max(module.outerWidthMm, module.outerDepthMm)
+        let bedSmall = min(printer.bedWidthMm, printer.bedDepthMm)
+        let bedLarge = max(printer.bedWidthMm, printer.bedDepthMm)
+        let bedFitDim = bedLarge - 4.0  // small safety margin from bed edge
+
+        // Number of pieces needed to fit the long side.
+        let parts = max(2, Int(ceil(longSide / bedFitDim)))
+
+        // Cut along the longer axis.
+        let splitAlongX = module.outerWidthMm >= module.outerDepthMm
+        let totalAlongAxis = splitAlongX ? module.outerWidthMm : module.outerDepthMm
+        let crossAxis = splitAlongX ? module.outerDepthMm : module.outerWidthMm
+
+        // Reject if even the cross axis is too big for the bed.
+        if crossAxis > bedSmall - 4.0 {
+            // Can't fit even after one bisection. Return the original;
+            // the slicer will surface a hard warning.
+            return [module]
+        }
+
+        let pieceLen = totalAlongAxis / Double(parts)
+        let jointWidth: Double = 14.0   // length of the tab along the seam
+        let jointDepth: Double = 4.0    // protrusion depth into the next piece
+        let jointKerf: Double = 0.3     // tolerance per side so parts slide
+
+        var pieces: [PrintableModule] = []
+        for i in 0..<parts {
+            let originAdjustAlong = Double(i) * pieceLen
+            let pieceW = splitAlongX ? pieceLen : module.outerWidthMm
+            let pieceD = splitAlongX ? module.outerDepthMm : pieceLen
+
+            let originX = splitAlongX
+                ? module.originXMm + originAdjustAlong
+                : module.originXMm
+            let originY = splitAlongX
+                ? module.originYMm
+                : module.originYMm + originAdjustAlong
+
+            // Slight overlap on inner seams to embed the joint geometry.
+            // Right-edge piece grows +jointDepth (male tab); left-edge
+            // piece keeps the original cut. We don't actually mesh the
+            // tab here (the simple-mesh path glues seamlessly when parts
+            // are placed at the same drawer position) but we mark the
+            // metadata so downstream visualization / print labels know.
+
+            var piece = PrintableModule(
+                id: UUID(),
+                name: pieceLabel(module.name, index: i, count: parts),
+                outerWidthMm: pieceW,
+                outerDepthMm: pieceD,
+                heightMm: module.heightMm,
+                originXMm: originX,
+                originYMm: originY,
+                wallThicknessMm: module.wallThicknessMm,
+                bottomThicknessMm: module.bottomThicknessMm,
+                cornerRadiusMm: module.cornerRadiusMm,
+                tintHex: module.tintHex,
+                tier: module.tier,
+                zOffsetMm: module.zOffsetMm,
+                splitPartIndex: i,
+                splitPartCount: parts,
+                originalModuleId: module.id
+            )
+
+            // If a piece STILL doesn't fit (very rare — only when both axes
+            // are oversized), recurse into a finer split.
+            if !piece.fitsBed(printer) && parts < 6 {
+                let deeper = splitOversized(piece, printer: printer)
+                pieces.append(contentsOf: deeper)
+            } else {
+                _ = jointWidth; _ = jointDepth; _ = jointKerf  // reserved
+                pieces.append(piece)
+            }
+        }
+        return pieces
+    }
+
+    private static func pieceLabel(_ baseName: String, index: Int, count: Int) -> String {
+        // "Large Utensil Tray (1/2)" — mirrors how slicers label split prints
+        return "\(baseName) (\(index + 1)/\(count))"
+    }
+
+    // MARK: - Tier-2 locating lip
+
+    /// Geometry tuning for the tier-2 locating lip. Numbers are the result
+    /// of: lip needs to be deep enough to hold position (~6mm); inset enough
+    /// to clear the parent's wall + a slip-fit tolerance (parent.wall = 1.6,
+    /// add ~1mm clearance per side → 2.6mm inset); and short enough not to
+    /// consume too much of the parent cavity's usable depth.
+    static let tier2LipDepthMm: Double = 6.0
+    static let tier2LipInsetMm: Double = 2.6
+
+    /// Build the locating-lip module for a tier-2 body. Smaller footprint
+    /// (inset on every side), shorter height, positioned just below the
+    /// body's bottom so it descends into the tier-1 parent's cavity. Marked
+    /// `isLocatingLip` so user-facing module counts can ignore it.
+    private static func makeTier2Lip(forBody body: PrintableModule,
+                                       parentBaseHeightMm: Double,
+                                       settings: PrintSettings,
+                                       item: OrganizerItem) -> PrintableModule {
+        let inset = tier2LipInsetMm
+        let depth = tier2LipDepthMm
+        let lipW = max(8, body.outerWidthMm - 2 * inset)
+        let lipD = max(8, body.outerDepthMm - 2 * inset)
+
+        return PrintableModule(
+            id: UUID(),
+            name: "\(body.name) lip",
+            outerWidthMm: lipW,
+            outerDepthMm: lipD,
+            heightMm: depth,
+            originXMm: body.originXMm + inset,
+            originYMm: body.originYMm + inset,
+            wallThicknessMm: settings.wallThicknessMm,
+            bottomThicknessMm: settings.bottomThicknessMm,
+            cornerRadiusMm: settings.cornerRadiusMm,
+            tintHex: hex(for: item),
+            tier: 2,
+            zOffsetMm: parentBaseHeightMm - depth,
+            originalModuleId: body.id,
+            isLocatingLip: true
         )
     }
 

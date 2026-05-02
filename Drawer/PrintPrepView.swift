@@ -13,6 +13,7 @@ import SwiftUI
 struct PrintPrepView: View {
     let layout: DrawerLayout
 
+    @EnvironmentObject var store: DrawerStore
     @State private var settings: PrintSettings = .default
     @State private var printer: PrinterProfile = .bambuA1
     @State private var amsPlate: AMSLitePlate = .single
@@ -25,6 +26,11 @@ struct PrintPrepView: View {
     @State private var showShare = false
     @State private var showCalibrationConfirm = false
     @State private var showLargePrintConfirm = false
+    @State private var showPrintTracker = false
+    /// Which AMS slot the user is currently picking a color for. `nil` when
+    /// the picker isn't shown. Lets the user change the existing color of
+    /// any slot (including slot 1) without having to remove it first.
+    @State private var pickingSlotIdx: Int?
     @Environment(\.dismiss) private var dismiss
 
     private var organizer: PrintableOrganizer {
@@ -69,6 +75,7 @@ struct PrintPrepView: View {
                         coloringPolicySection
                     }
                     estimateCard
+                    costCard
                     printerSection
                     settingsSection
                     warningsSection
@@ -102,6 +109,16 @@ struct PrintPrepView: View {
                     ShareSheet(items: [result.fileURL])
                 }
             }
+            .sheet(item: Binding(
+                get: { pickingSlotIdx.map { SlotPickIndex(idx: $0) } },
+                set: { pickingSlotIdx = $0?.idx }
+            )) { wrapper in
+                FilamentColorPickerSheet(
+                    currentColor: amsPlate.slots[wrapper.idx]?.color
+                ) { picked in
+                    setSlot(wrapper.idx, color: picked)
+                }
+            }
             .alert("Print a calibration cube first?",
                    isPresented: $showCalibrationConfirm) {
                 Button("Continue with organizer", role: .destructive) {
@@ -128,6 +145,13 @@ struct PrintPrepView: View {
         let grams = sliceJob?.estimatedFilamentGrams ?? 0
         let minutes = sliceJob?.estimatedPrintTimeMinutes ?? 0
         return "This print will use about \(Int(grams)) g of filament and take \(Int(minutes / 60)) hr \(Int(minutes.truncatingRemainder(dividingBy: 60))) min. Make sure you have enough filament loaded and that the printer is supervised."
+    }
+
+    /// Module count surfaced to the user. Excludes locating-lip pieces
+    /// (auto-generated for tier-2 stacks); they print fused with their
+    /// parent body so they're not user-meaningful objects.
+    private var userVisibleModuleCount: Int {
+        organizer.modules.filter { !$0.isLocatingLip }.count
     }
 
     // MARK: - Summary
@@ -229,6 +253,54 @@ struct PrintPrepView: View {
         )
     }
 
+    // MARK: - Cost
+
+    /// Filament cost preview based on the user's $/kg setting (kept on the
+    /// shared store so it persists across sessions and screens). Updates
+    /// live with the estimate card's grams figure.
+    private var costCard: some View {
+        let grams = sliceJob?.estimatedFilamentGrams ?? 0
+        let kg = grams / 1000.0
+        let totalCost = kg * store.costPerKg
+        let perGram = store.costPerKg / 1000.0
+
+        return VStack(alignment: .leading, spacing: 10) {
+            SectionHeader(label: "Filament cost",
+                          trailing: String(format: "$%.2f/kg", store.costPerKg),
+                          trailingColor: .white.opacity(0.6))
+
+            HStack(spacing: 14) {
+                statChip(label: "Total",
+                         value: String(format: "$%.2f", totalCost))
+                statChip(label: "Per gram",
+                         value: String(format: "%.1f¢", perGram * 100))
+                statChip(label: "Filament",
+                         value: String(format: "%.0f g", grams))
+            }
+
+            HStack {
+                Text("Spool price ($/kg)")
+                    .font(.caption.bold())
+                    .foregroundStyle(.white.opacity(0.7))
+                Spacer()
+                Text(String(format: "$%.0f", store.costPerKg))
+                    .font(.caption.monospaced())
+                    .foregroundStyle(.white)
+            }
+            Slider(value: Binding(
+                get: { store.costPerKg },
+                set: { store.costPerKg = $0 }
+            ), in: 10...80, step: 1)
+                .tint(.green)
+
+            Text("Set this once for your spool. Used to estimate the cost of every print.")
+                .font(.caption2)
+                .foregroundStyle(.white.opacity(0.45))
+        }
+        .padding(14)
+        .glassCard()
+    }
+
     // MARK: - Material
 
     private var materialSection: some View {
@@ -292,13 +364,27 @@ struct PrintPrepView: View {
                 .frame(width: 50, alignment: .leading)
 
             if let p = profile {
-                Circle()
-                    .fill(p.color.swiftUIColor)
-                    .frame(width: 26, height: 26)
-                    .overlay(Circle().stroke(.white.opacity(0.4), lineWidth: 1))
-                Text(p.color.name)
-                    .font(.caption)
-                    .foregroundStyle(.white)
+                // The whole "swatch + name" area is tappable to change the
+                // color — fixes the previous UX where slot 1's color was
+                // un-editable unless you removed it first.
+                Button {
+                    pickingSlotIdx = slotIdx
+                } label: {
+                    HStack(spacing: 10) {
+                        Circle()
+                            .fill(p.color.swiftUIColor)
+                            .frame(width: 26, height: 26)
+                            .overlay(Circle().stroke(.white.opacity(0.4), lineWidth: 1))
+                        Text(p.color.name)
+                            .font(.caption.bold())
+                            .foregroundStyle(.white)
+                        Image(systemName: "chevron.up.chevron.down")
+                            .font(.system(size: 10, weight: .heavy))
+                            .foregroundStyle(.white.opacity(0.4))
+                    }
+                }
+                .buttonStyle(PressableStyle())
+
                 Spacer()
                 Button(action: { setSlot(slotIdx, color: nil) }) {
                     Image(systemName: "minus.circle.fill")
@@ -308,12 +394,8 @@ struct PrintPrepView: View {
                 .disabled(slotIdx == 0 && amsPlate.activeFilaments.count == 1)
             } else {
                 Spacer()
-                Menu {
-                    ForEach(FilamentColor.defaults) { color in
-                        Button(action: { setSlot(slotIdx, color: color) }) {
-                            Label(color.name, systemImage: "circle.fill")
-                        }
-                    }
+                Button {
+                    pickingSlotIdx = slotIdx
                 } label: {
                     Label("Add Color", systemImage: "plus.circle")
                         .font(.caption.bold())
@@ -322,6 +404,7 @@ struct PrintPrepView: View {
                         .padding(.vertical, 5)
                         .background(Capsule().fill(.white.opacity(0.12)))
                 }
+                .buttonStyle(PressableStyle())
             }
         }
         .padding(.vertical, 4)
@@ -457,6 +540,22 @@ struct PrintPrepView: View {
             settingSlider(label: "Infill",
                           value: $settings.infillPercent,
                           range: 0...50, step: 5, unit: "%")
+
+            Divider()
+                .background(.white.opacity(0.1))
+                .padding(.vertical, 4)
+
+            Toggle(isOn: $settings.autoSplitOversized) {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Auto-split oversized modules")
+                        .font(.caption.bold())
+                        .foregroundStyle(.white.opacity(0.85))
+                    Text("Split trays bigger than the printer bed into pieces that fit and snap together")
+                        .font(.caption2)
+                        .foregroundStyle(.white.opacity(0.5))
+                }
+            }
+            .tint(layout.purpose.color)
         }
         .padding(14)
         .glassCard()
@@ -559,23 +658,50 @@ struct PrintPrepView: View {
             .disabled(isExporting || layout.items.isEmpty)
             .sensoryFeedback(.success, trigger: exportResult)
 
-            Button(action: { showShare = exportResult != nil }) {
-                HStack {
-                    Image(systemName: "square.and.arrow.up")
-                    Text("Share Last Export")
-                        .font(.subheadline.bold())
+            HStack(spacing: 10) {
+                Button(action: { showShare = exportResult != nil }) {
+                    HStack {
+                        Image(systemName: "square.and.arrow.up")
+                        Text("Share")
+                            .font(.subheadline.bold())
+                    }
+                    .foregroundStyle(.white)
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 12)
+                    .background(
+                        RoundedRectangle(cornerRadius: 14)
+                            .fill(.white.opacity(0.08))
+                    )
                 }
-                .foregroundStyle(.white)
-                .frame(maxWidth: .infinity)
-                .padding(.vertical, 12)
-                .background(
-                    RoundedRectangle(cornerRadius: 14)
-                        .fill(.white.opacity(0.08))
-                )
+                .buttonStyle(PressableStyle())
+                .disabled(exportResult == nil)
+                .opacity(exportResult == nil ? 0.4 : 1)
+
+                Button(action: startTrackingPrint) {
+                    HStack {
+                        Image(systemName: "timer")
+                        Text("Track print")
+                            .font(.subheadline.bold())
+                    }
+                    .foregroundStyle(.white)
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 12)
+                    .background(
+                        RoundedRectangle(cornerRadius: 14)
+                            .fill(.green.opacity(0.18))
+                            .overlay(
+                                RoundedRectangle(cornerRadius: 14)
+                                    .stroke(.green.opacity(0.4), lineWidth: 0.5)
+                            )
+                    )
+                }
+                .buttonStyle(PressableStyle())
+                .disabled(exportResult == nil)
+                .opacity(exportResult == nil ? 0.4 : 1)
             }
-            .buttonStyle(PressableStyle())
-            .disabled(exportResult == nil)
-            .opacity(exportResult == nil ? 0.4 : 1)
+
+            // Inline tracker — shows active print countdown if one is running.
+            PrintTrackerView()
 
             if let error = exportError {
                 Text(error)
@@ -596,6 +722,21 @@ struct PrintPrepView: View {
                 .multilineTextAlignment(.center)
                 .padding(.top, 4)
         }
+    }
+
+    /// Start a live print tracker for the most recently exported file.
+    /// Picks up filament + time estimates from the current `sliceJob`.
+    private func startTrackingPrint() {
+        let totalSeconds = Int((sliceJob?.estimatedPrintTimeMinutes ?? 60) * 60)
+        let totalGrams = sliceJob?.estimatedFilamentGrams ?? organizer.totalGrams
+        let attrs = PrintActivityAttributes(
+            drawerName: "\(layout.purpose.rawValue) Drawer",
+            printerName: printer.name,
+            totalGrams: totalGrams,
+            totalSeconds: max(60, totalSeconds)
+        )
+        PrintProgressManager.shared.start(attributes: attrs)
+        UIImpactFeedbackGenerator(style: .light).impactOccurred()
     }
 
     // MARK: - Logic
@@ -648,9 +789,9 @@ struct PrintPrepView: View {
         let materialName = amsPlate.activeFilaments.first?.profile.material.displayName ?? "Filament"
         let summary: String
         if isBambuA1 {
-            summary = "\(organizer.modules.count) modules • \(amsPlate.activeFilaments.count) filament(s) • \(materialName) • \(String(format: "%.0f", grams)) g • approx \(formatMinutes(minutes))"
+            summary = "\(userVisibleModuleCount) modules • \(amsPlate.activeFilaments.count) filament(s) • \(materialName) • \(String(format: "%.0f", grams)) g • approx \(formatMinutes(minutes))"
         } else {
-            summary = "\(organizer.modules.count) modules • \(String(format: "%.0f", grams)) g \(materialName) • approx \(formatMinutes(minutes))"
+            summary = "\(userVisibleModuleCount) modules • \(String(format: "%.0f", grams)) g \(materialName) • approx \(formatMinutes(minutes))"
         }
 
         sliceJob = SlicedPrintJob(
@@ -685,10 +826,15 @@ struct PrintPrepView: View {
                     let out = try bambu.sliceWithContext(ctx,
                         fileBaseName: "drawer_\(captured.layout.purpose.rawValue)")
                     DispatchQueue.main.async {
+                        // Don't count locating lips toward the user-facing
+                        // module count — they print fused into their parent
+                        // tier-2 bodies, so they're not separate objects.
+                        let visibleCount = captured.organizer.modules
+                            .filter { !$0.isLocatingLip }.count
                         exportResult = PrintExportResult(
                             fileURL: out.packageURL,
                             format: .threeMF,
-                            moduleCount: captured.organizer.modules.count,
+                            moduleCount: visibleCount,
                             sizeBytes: out.sizeBytes
                         )
                         isExporting = false
@@ -723,5 +869,116 @@ struct PrintPrepView: View {
         let h = total / 60
         let m = total % 60
         return m == 0 ? "\(h) hr" : "\(h) hr \(m) min"
+    }
+}
+
+// MARK: - Filament color picker
+
+/// `Identifiable` wrapper around a slot index so we can use `sheet(item:)`
+/// — `Int` itself can't conform to `Identifiable` and tagging the literal
+/// each time would require an extension we don't want polluting the global
+/// namespace.
+private struct SlotPickIndex: Identifiable {
+    var id: Int { idx }
+    let idx: Int
+}
+
+/// Bottom sheet for picking a filament color. Renders each option as a
+/// real colored circle (the previous `Menu` rendering showed every option
+/// as a flat black SF Symbol because Menu can't tint per-row icons) and
+/// pre-selects the slot's existing color so re-opening the picker shows
+/// the user where they already are.
+struct FilamentColorPickerSheet: View {
+    let currentColor: FilamentColor?
+    var onPick: (FilamentColor) -> Void
+
+    @Environment(\.dismiss) private var dismiss
+
+    private let columns = [
+        GridItem(.flexible(), spacing: 12),
+        GridItem(.flexible(), spacing: 12)
+    ]
+
+    var body: some View {
+        NavigationStack {
+            ScrollView {
+                LazyVGrid(columns: columns, spacing: 12) {
+                    ForEach(FilamentColor.defaults) { color in
+                        colorTile(color: color,
+                                   isSelected: color.id == currentColor?.id)
+                            .onTapGesture {
+                                UISelectionFeedbackGenerator().selectionChanged()
+                                onPick(color)
+                                dismiss()
+                            }
+                    }
+                }
+                .padding(20)
+            }
+            .background(
+                LinearGradient(
+                    colors: [Color(hex: "0D1117"), Color(hex: "161B22")],
+                    startPoint: .top, endPoint: .bottom
+                )
+                .ignoresSafeArea()
+            )
+            .navigationTitle("Pick a filament color")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Cancel") { dismiss() }
+                        .foregroundStyle(.white)
+                }
+            }
+        }
+        .presentationDetents([.medium, .large])
+        .presentationDragIndicator(.visible)
+    }
+
+    private func colorTile(color: FilamentColor, isSelected: Bool) -> some View {
+        VStack(spacing: 10) {
+            ZStack {
+                Circle()
+                    .fill(color.swiftUIColor)
+                    .frame(width: 56, height: 56)
+                    .overlay(
+                        Circle().stroke(.white.opacity(0.45), lineWidth: 1)
+                    )
+                    .shadow(color: color.swiftUIColor.opacity(0.45),
+                            radius: isSelected ? 14 : 0, y: 4)
+                if isSelected {
+                    Circle()
+                        .strokeBorder(.white, lineWidth: 3)
+                        .frame(width: 64, height: 64)
+                    Image(systemName: "checkmark")
+                        .font(.system(size: 22, weight: .heavy))
+                        .foregroundStyle(.white)
+                        .shadow(color: .black.opacity(0.6), radius: 2)
+                }
+            }
+            .frame(width: 64, height: 64)
+
+            Text(color.name)
+                .font(.caption.bold())
+                .foregroundStyle(.white)
+                .lineLimit(1)
+                .minimumScaleFactor(0.7)
+        }
+        .frame(maxWidth: .infinity)
+        .padding(.vertical, 14)
+        .padding(.horizontal, 8)
+        .background(
+            RoundedRectangle(cornerRadius: 14)
+                .fill(.white.opacity(isSelected ? 0.10 : 0.04))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 14)
+                        .stroke(isSelected ? .white.opacity(0.55)
+                                            : .white.opacity(0.06),
+                                 lineWidth: isSelected ? 1.5 : 1)
+                )
+        )
+        .scaleEffect(isSelected ? 1.04 : 1.0)
+        .animation(.spring(response: 0.3, dampingFraction: 0.75),
+                   value: isSelected)
     }
 }

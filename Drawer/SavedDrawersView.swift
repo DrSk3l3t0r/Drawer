@@ -11,16 +11,80 @@ struct SavedDrawersView: View {
     @EnvironmentObject var store: DrawerStore
     @State private var selectedDrawer: SavedDrawer?
     @State private var hasAppeared = false
+    @State private var showKitchenPlans = false
 
     var body: some View {
-        Group {
-            if store.savedDrawers.isEmpty {
-                emptyState
-            } else {
-                drawerList
+        NavigationStack {
+            Group {
+                if store.savedDrawers.isEmpty && store.kitchenPlans.isEmpty {
+                    emptyState
+                } else {
+                    VStack(spacing: 0) {
+                        kitchenPlansBanner
+                        drawerList
+                    }
+                }
+            }
+            .navigationDestination(isPresented: $showKitchenPlans) {
+                KitchenPlansListView()
+                    .environmentObject(store)
             }
         }
         .onAppear { hasAppeared = true }
+    }
+
+    /// Pinned banner at the top of Saved that opens the kitchen-plans list.
+    /// Surfaces the multi-drawer planning feature without requiring a
+    /// separate top-level tab.
+    private var kitchenPlansBanner: some View {
+        Button {
+            showKitchenPlans = true
+        } label: {
+            HStack(spacing: 12) {
+                Image(systemName: "rectangle.3.group.fill")
+                    .font(.system(size: 22))
+                    .foregroundStyle(.white)
+                    .frame(width: 44, height: 44)
+                    .background(
+                        LinearGradient(
+                            colors: [
+                                Color(hue: 0.55, saturation: 0.6, brightness: 0.7),
+                                Color(hue: 0.7, saturation: 0.5, brightness: 0.6)
+                            ],
+                            startPoint: .topLeading,
+                            endPoint: .bottomTrailing
+                        )
+                    )
+                    .clipShape(RoundedRectangle(cornerRadius: 10))
+
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Kitchen Plans")
+                        .font(.subheadline.bold())
+                        .foregroundStyle(.white)
+                    Text(store.kitchenPlans.isEmpty
+                         ? "Group multiple drawers as one project"
+                         : "\(store.kitchenPlans.count) plan\(store.kitchenPlans.count == 1 ? "" : "s")")
+                        .font(.caption)
+                        .foregroundStyle(.white.opacity(0.55))
+                }
+                Spacer()
+                Image(systemName: "chevron.right")
+                    .font(.caption)
+                    .foregroundStyle(.white.opacity(0.3))
+            }
+            .padding(12)
+            .background(
+                RoundedRectangle(cornerRadius: 14)
+                    .fill(.white.opacity(0.05))
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 14)
+                            .stroke(.white.opacity(0.06), lineWidth: 1)
+                    )
+            )
+            .padding(.horizontal, 20)
+            .padding(.top, 8)
+        }
+        .buttonStyle(PressableStyle())
     }
 
     // MARK: - Empty State

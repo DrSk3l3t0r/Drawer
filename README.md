@@ -35,8 +35,11 @@
    - [8.2 The Layout Engine](#82-the-layout-engine-the-heart-of-the-app)
    - [8.3 3D Mesh Generation](#83-3d-mesh-generation)
    - [8.4 The Bambu A1 Slicer](#84-the-bambu-a1-slicer)
-   - [8.5 The 3D Preview](#85-the-3d-preview)
-   - [8.6 Liquid Glass UI](#86-liquid-glass-ui)
+   - [8.5 3D Previews](#85-3d-previews)
+   - [8.6 AR Drawer Preview](#86-ar-drawer-preview-v02)
+   - [8.7 Kitchen Planning](#87-kitchen-planning-v02)
+   - [8.8 Live Activity for Print Progress](#88-live-activity-for-print-progress-v02)
+   - [8.9 Liquid Glass UI](#89-liquid-glass-ui)
 9. [Data Model](#9-data-model)
 10. [Persistence](#10-persistence)
 11. [Glossary for Non-Coders](#11-glossary-for-non-coders)
@@ -56,11 +59,14 @@ Kitchen drawers are chaotic. Cutlery slides, spices roll, batteries mingle with 
 **Drawer** turns your iPhone into an end-to-end drawer-organization studio:
 
 1. **Scan** an empty drawer with your phone's camera (LiDAR if your device has it; otherwise a credit-card reference for scale).
-2. **Confirm** the auto-detected dimensions on a live overlay.
-3. **Pick a category** — Utensils, Spices, Office Supplies, etc.
-4. **The layout engine** generates a custom layout where related items end up *physically adjacent* (forks/spoons/knives in a tight row, spice rows stacked, pen-tray + sticky notes + index cards as a writing zone).
-5. **Preview** the result in an interactive 3D viewer — rotate, zoom, see the exact AMS lite color assignment.
-6. **Export** a printer-ready `.gcode.3mf` for the **Bambu Lab A1**, generated entirely on-device — or a generic `.3mf` for any other slicer.
+2. **Mark obstacles** — rails, raised areas, drain holes, dishwasher screws — that the layout should avoid.
+3. **Confirm** the auto-detected dimensions on a live overlay.
+4. **Pick a category** — Utensils, Spices, Office Supplies, etc., plus your own custom-defined modules.
+5. **The layout engine** generates a custom layout where related items end up *physically adjacent* (forks/spoons/knives in a tight row, spice rows stacked, pen-tray + sticky notes + index cards as a writing zone) and routes around any obstacles you marked.
+6. **Add stacked tiers** if you want a 2-level organizer; the engine emits real locating-lip geometry so the top tier doesn't slide.
+7. **Preview** the result in an interactive 3D viewer with an explode toggle, *or* in an AR overlay positioned in your real drawer at real scale.
+8. **Group** related drawers into a kitchen plan and design your whole kitchen as one project.
+9. **Export** a printer-ready `.gcode.3mf` for the **Bambu Lab A1** with on-device slicing, **track print progress** with a Live Activity, and see filament cost computed from your $/kg setting. Modules bigger than the printer bed automatically split into snap-together pieces.
 
 Everything happens on your phone. No cloud. No subscription.
 
@@ -69,9 +75,11 @@ Everything happens on your phone. No cloud. No subscription.
 The core technical challenges:
 
 - **Accurate measurement from a photo.** Mixing ARKit LiDAR depth, Vision rectangle detection, and a credit-card scale reference fallback.
-- **Context-aware layout.** Bin-packing is NP-hard and naive solvers will scatter related items. Drawer treats each semantic group as a *cohesive block* and chooses the arrangement (row / column / wrapped grid) that matches the items' natural shape.
+- **Context-aware layout.** Bin-packing is NP-hard and naive solvers will scatter related items. Drawer treats each semantic group as a *cohesive block*, chooses the arrangement (row / column / wrapped grid) that matches the items' natural shape, and respects user-marked keep-out zones.
 - **A real on-device slicer for Bambu A1.** Not a third-party plugin — actual G-code generation, AMS lite tool-change planning, and the 16-file `.gcode.3mf` package format Bambu Studio expects.
-- **A 3D preview that reflects exactly what will print.** SceneKit, with each module tinted by its assigned AMS lite slot color.
+- **AR at real scale, on a real drawer.** ARKit world tracking + plane detection + the same mesh data the print pipeline uses, so the overlay is exactly what will print.
+- **Mechanical interlocks for stacking.** Tier-2 modules carry a smaller-footprint locating lip that drops into the tier-1 cavity — a real, physical, geometric solution to the "top tray slides around" problem.
+- **Auto-split for oversize.** When a tray exceeds the printer bed, automatic bisection produces snap-together pieces with proper labeling so the user can assemble them in the drawer.
 
 ---
 
@@ -91,14 +99,23 @@ The core technical challenges:
 | Area | What It Does |
 |---|---|
 | **Measurement** | LiDAR depth scanning with stability-locked capture; falls back to a credit-card reference scale when LiDAR is unavailable; manual override always available. |
+| **Obstacle marking** | Tag rails, drain holes, dishwasher screws, and raised areas as keep-out zones. The packer routes around them. |
 | **Categories** | 7 built-in purposes (Utensils, Junk Drawer, Spices, Baking Tools, Office Supplies, Linens, Custom) with curated organizer catalogs per category. |
-| **Smart Layout** | Group-aware shelf packer that places related items as cohesive blocks. Cutlery forms tight rows, spices stack, writing-zone items form a 2-row grid. |
+| **Custom modules** | Define your own modules (width × depth × name × color), persisted across drawers via the user-template store. |
+| **Smart Layout** | Group-aware shelf packer that places related items as cohesive blocks — cutlery in tight rows, spices stacked, writing-zone items in a 2-row grid. Honors marked obstacles. |
+| **Multi-tier stacking** | Add a tier-2 organizer above any tray. Visual drawer-map picker shows where you're stacking; side-view preview shows fit. Real locating-lip geometry keeps the top tray from sliding. |
 | **Edit Organizers** | Add or remove individual organizers post-generation; the engine lays them out with the same context-aware logic. |
-| **3D Preview** | Interactive SceneKit viewer with auto-rotate, drag-to-rotate, pinch-to-zoom, color-coded per AMS lite slot. |
+| **AR Drawer Preview** | ARKit-based pass-through. Tap to drop the layout on the detected floor at real scale. Tap modules to inspect dimensions, pinch to scale, twist to rotate, long-press to drag. |
+| **3D View with Explode** | Dedicated SceneKit 3D viewer for inspecting layouts. Tap "Explode stack" to lift tier-2 modules + their locating lips so you can see how they interlock. |
+| **3D Print Preview** | Interactive SceneKit viewer with auto-rotate, drag-to-rotate, pinch-to-zoom, color-coded per AMS lite slot. |
+| **Auto-split** | Modules bigger than the printer bed automatically split into "Foo (1/2)" + "Foo (2/2)" pieces that print fine and snap together in the drawer. |
 | **Slicing** | Native Bambu Lab A1 G-code generation: per-layer toolpaths, AMS lite color ranges, real `.gcode.3mf` Bambu Studio recognizes. Other printers fall back to a clean `.3mf` for external slicers. |
-| **AMS Lite** | 4-slot plate, 4 coloring policies (mono, per-module, per-feature, custom), automatic per-layer filament-list computation. |
-| **Persistence** | Saved drawers stored in `UserDefaults` (small enough that a real database is overkill). Photo thumbnails included. |
-| **Liquid Glass UI** | Real iOS 26 `.glassEffect()` material on the bottom tab bar and 3D preview controls — not a custom approximation. |
+| **AMS Lite** | 4-slot plate, 4 coloring policies (mono, per-module, per-feature, custom), automatic per-layer filament-list computation. Real-color picker (not a Menu of black SF Symbols). |
+| **Filament cost** | Set $/kg once, every print prep shows total cost, per-gram cost, and grams. |
+| **Live Activity / Print tracker** | After exporting, start an in-app countdown. ActivityKit infrastructure ready for Lock Screen / Dynamic Island once a Widget Extension target is added. |
+| **Kitchen Plans** | Group multiple drawers into a single kitchen project with per-drawer location labels. Design your entire kitchen as one design. |
+| **Persistence** | Saved drawers, custom templates, kitchen plans, and cost setting stored in `UserDefaults`. Photo thumbnails included. |
+| **Liquid Glass UI** | Real iOS 26 `.glassEffect()` material on the bottom tab bar, AR controls, and 3D viewer chips — not a custom approximation. |
 | **Animations** | Symbol effects, phase animators, matched geometry, sensory feedback, staggered entry — every interaction has a small physics-based response. |
 
 ---
@@ -189,7 +206,7 @@ Each step gates the next: you can't pick a purpose before confirming a measureme
 
 ## 7. Codebase Tour
 
-The project is ~10,800 lines of Swift across 27 files. Every file has one job.
+The project is ~14,000 lines of Swift across 32 files (v0.2.0 added 5 files for the new features). Every file has one job.
 
 ```text
 Drawer/
@@ -201,19 +218,29 @@ Drawer/
 ├── CameraService.swift          ← AVFoundation session + ARKit LiDAR scan service
 ├── MeasurementEngine.swift      ← Vision rectangle detection + credit-card scaling
 ├── MeasurementReviewView.swift  ← Adjust the auto-detected quad and dimensions
+├── ObstacleMarkingView.swift    ← Mark forbidden zones in the drawer (rails, drains, …)   [v0.2]
 │
-├── DrawerModels.swift           ← Core data types: measurement, layout, saved drawer
+├── DrawerModels.swift           ← Core data types: measurement, layout, obstacles,
+│                                  user templates, kitchen plans, saved drawer
 │
 ├── PurposeSelectionView.swift   ← Pick a category (utensils, spices, …)
 ├── LayoutEngine.swift           ← Catalogs + group-aware packing algorithm
-├── LayoutResultView.swift       ← Blueprint + share/save/print actions
-├── SavedDrawersView.swift       ← Persisted-drawers list
-├── EditOrganizersSheet.swift    ← Add/remove individual organizers
+│                                  (now obstacle- and user-template-aware)
+├── LayoutResultView.swift       ← Blueprint + share/save/print/AR/3D actions
+├── Layout3DView.swift           ← Standalone 3D viewer with explode for tier stacks   [v0.2]
+├── SavedDrawersView.swift       ← Persisted-drawers list + Kitchen Plans entry
+├── KitchenPlanView.swift        ← Multi-drawer kitchen project list + detail view   [v0.2]
+├── EditOrganizersSheet.swift    ← Add/remove organizers, custom dimensions, tier stacking
 │
-├── PrintModels.swift            ← Print-pipeline types: filament, printer, settings, modules
-├── PrintModelGenerator.swift    ← Layout → printable modules + triangle meshes
+├── PrintModels.swift            ← Print-pipeline types: filament, printer, settings,
+│                                  modules (with tier, lip, split-part metadata)
+├── PrintModelGenerator.swift    ← Layout → printable modules + meshes
+│                                  (auto-split + tier-2 locating-lip generation)
 ├── Print3DPreview.swift         ← SceneKit viewer (drag-rotate, auto-spin, AMS colors)
-├── PrintPrepView.swift          ← Print prep UI: AMS slots, materials, slice & export
+├── PrintPrepView.swift          ← Print prep UI: AMS slots, materials, cost calculator,
+│                                  slice & export, color picker, print tracker
+├── PrintActivity.swift          ← Live Activity + in-app PrintTrackerView   [v0.2]
+├── ARDrawerPreviewView.swift    ← ARKit pass-through preview at real scale   [v0.2]
 │
 ├── SlicerEngine.swift           ← Slicer protocol + DiagnosticSlicerEngine fallback
 ├── ThreeMFExporter.swift        ← Generic .3mf for non-Bambu printers (incl. ZipWriter)
@@ -400,6 +427,14 @@ Result: large_tray on shelf 1, the eating group as a tight stacked column on she
 - Sometimes the cutlery zone is above the cooking zone, sometimes below
 - But fork/spoon/knife are *always* a tight row
 
+#### Obstacles → keep-out zones *(v0.2)*
+
+Every shelf-placement decision passes through `collidesWithObstacles(_:x:y:w:h:)`, which checks the placement rectangle against the `DrawerMeasurement.obstacles` list (with a 0.15″ safety pad). All four placement strategies — same-group, new shelf, cross-group, individual fallback — honor the keep-out zones, so you can mark a dishwasher screw or a raised plastic foot in `ObstacleMarkingView` and the engine will route around it.
+
+#### Custom user templates *(v0.2)*
+
+`UserDefinedTemplate` instances live in `DrawerStore.userTemplates`. The layout engine pulls them into the catalog via `LayoutEngine.makeTemplate(from:)` and treats them as members of a `user_custom` group, so they cluster together visually and don't disrupt the curated catalogs.
+
 ---
 
 ### 8.3 3D Mesh Generation
@@ -446,10 +481,29 @@ struct PrintableModule {
     var bottomThicknessMm           // 1.2 mm default
     var cornerRadiusMm              // 2.0 mm
     var tintHex                     // color from layout
+    var tier: Int                   // 1 = base, 2 = stacked on top
+    var zOffsetMm                   // vertical offset (tier-2 sits at baseHeight)
+    var splitPartIndex, splitPartCount     // for auto-split modules
+    var originalModuleId            // groups split / stacked pieces
+    var isLocatingLip               // tier-2 anti-slide protrusion
 }
 ```
 
 It also carries methods like `fitsBed(_ printer)` (bed-size check) and `gramsForFilament(_:infillPercent:)` (filament estimate using wall surface area + bottom area + cavity infill).
+
+#### Auto-split for oversize *(v0.2)*
+
+If a module's footprint exceeds the printer bed and `settings.autoSplitOversized` is enabled, `PrintModelGenerator.splitOversized(_:printer:)` bisects the module along its longest axis into 2+ pieces sized to fit. Each piece is labeled `"Foo (1/2)"`, `"Foo (2/2)"`, etc., and carries its `splitPartIndex` / `splitPartCount` / `originalModuleId` so the export reports them as parts of the same original tray. The split runs recursively if a single bisection isn't enough.
+
+#### Tier-2 locating lip *(v0.2)*
+
+A tier-2 module that just sits flat on tier-1's rim would slide around. Drawer ships a real mechanical interlock: when generating modules for a tier-2 layout item, `PrintModelGenerator.makeTier2Lip(...)` emits a *second* `PrintableModule` directly underneath:
+
+- **Footprint inset** by 2.6 mm per side from the parent's outer (clears tier-1's 1.6 mm wall + 1 mm slip-fit clearance)
+- **Depth** of 6 mm — long enough to locate, short enough to leave the bottom 28 mm of tier-1's cavity usable for storage
+- **Same XY position** as the tier-2 body, so during printing the two parts fuse into one continuous plastic piece
+
+The lip is marked `isLocatingLip = true` so user-facing module counts (estimate summary, export-result count, 3D preview badge) skip it — it's a print-mechanism detail, not a separate object the user thinks about.
 
 ---
 
@@ -563,15 +617,15 @@ These flow into both the G-code (`CONFIG_BLOCK`) and the `project_settings.confi
 
 ---
 
-### 8.5 The 3D Preview
+### 8.5 3D Previews
 
-#### What it does, in plain English
+Drawer ships **two** SceneKit-based 3D viewers, each tuned for a different question.
 
-After you set up your slicer parameters but before you export, Drawer shows you exactly what's about to print — *with the colors you picked, the modules in their drawer positions, freely rotatable*.
+#### 8.5.a `Print3DPreview` — "what will my slicer see?"
 
-#### How it works
+Lives inside Print Prep. Renders modules colored by their resolved AMS lite slot so the user sees the actual physical print outcome (including auto-split parts and tier-2 locating lips at reduced opacity).
 
-`Print3DPreview` is a SwiftUI `View` wrapping SceneKit (`SceneView`). On every `organizer` / `plate` / `assignment` change, it rebuilds the scene:
+`Print3DPreview` is a SwiftUI view wrapping SceneKit (`SceneView`). On every `organizer` / `plate` / `assignment` change, it rebuilds the scene:
 
 ![3D preview scene-rebuild flow](docs/diagrams/09-preview-rebuild.svg)
 
@@ -583,9 +637,22 @@ The user can:
 
 The Pause / Reset chips themselves use `.glassEffect(.regular.interactive(), in: Capsule())` — real iOS 26 Liquid Glass that physically reacts to touch, sitting over the rendered scene.
 
-#### Coordinate-system note
+#### 8.5.b `Layout3DView` — "show me the stack" *(v0.2)*
 
-The mesh uses `+Z up`, but SceneKit prefers `+Y up`. The conversion is baked into `Print3DPreview.makeGeometry`:
+Lives behind the **3D View** button on the layout result screen. Purpose-built for *understanding* the layout — particularly when tier-2 organizers stack on tier-1 ones and the top-down blueprint can't show them clearly.
+
+Killer feature: an **Explode toggle** that animates tier-2 bodies + their locating lips upward in lockstep, separating them from their tier-1 parents so you can see the interlock geometry:
+
+- Tier-1 stays on the floor
+- Tier-2 body lifts to `baseHeightMm + 60 mm`
+- Tier-2 lip lifts to `baseHeightMm − 6 mm + 60 mm` (preserving the 6 mm gap between body and lip)
+- A tier legend appears at the top whenever there's a tier-2 module — no clutter when not needed
+
+The view goes through `PrintModelGenerator.makeOrganizer` so the geometry it shows is identical to what the print pipeline produces — including the auto-split pieces and locating lips.
+
+#### Coordinate-system note (applies to both viewers)
+
+The mesh uses `+Z up`, but SceneKit prefers `+Y up`. The conversion is baked into `makeGeometry`:
 
 ```swift
 // vertex (x, y, z) ─→ SceneKit (x, z, y)
@@ -596,7 +663,112 @@ The result: drawer floor stays flat (XZ plane), modules stand up correctly along
 
 ---
 
-### 8.6 Liquid Glass UI
+### 8.6 AR Drawer Preview *(v0.2)*
+
+#### What it does, in plain English
+
+You hold your phone over your actual drawer. Drawer detects the floor of the drawer as a horizontal plane. You tap once and the proposed layout drops into the drawer at real scale, so you can see what each tray looks like and where it'll sit.
+
+#### How it works
+
+`ARDrawerPreviewView` wraps an `ARSCNView` (SceneKit + ARKit) and runs an `ARWorldTrackingConfiguration` with `.horizontal` plane detection. As tracking improves, the SwiftUI hint banner updates ("Move the phone slowly over the drawer floor" → "Floor detected — tap to drop your layout"). The first tap raycasts to the detected plane and anchors the layout there.
+
+Once placed, the user has **four manipulation gestures**, all wired through `ARCoordinator`:
+
+| Gesture | Effect | API |
+|---|---|---|
+| **Tap a module** | Highlight with cyan emission glow + slide up a glass info card with the module's name, tier, and dimensions | `ARSCNView.hitTest` + walk parent chain to find the registered `nodeToItem` mapping |
+| **Pinch** | Uniformly scale the entire layout — recalibrates if ARKit's plane scale is slightly off | `UIPinchGestureRecognizer` |
+| **Two-finger twist** | Rotate the entire layout around its vertical (Y) axis | `UIRotationGestureRecognizer` → `parent.eulerAngles.y -= rotation` |
+| **Long-press + drag** | Lift the layout off its anchor and slide it across the plane | `UILongPressGestureRecognizer` + `view.session.raycast` per `.changed` event |
+
+The modules use the layout item's actual color (vibrant HSV) at 0.85 opacity — solid enough to read against busy backgrounds, translucent enough to feel like an overlay on the real-world camera feed. `castsShadow = true` gives each module a contact shadow on the floor plane so they don't look like they're floating.
+
+> **One bug worth knowing about:** `ARSCNView.scene.background.contents` controls the camera pass-through. Setting it (even to `UIColor.clear`) replaces the camera with whatever you set — leading to a black void instead of the real world behind the modules. Don't touch that property.
+
+---
+
+### 8.7 Kitchen Planning *(v0.2)*
+
+#### What it does, in plain English
+
+A kitchen has many drawers. Designing them in isolation misses the bigger picture — "where do my baking supplies go relative to where I cook?". `KitchenPlan` lets you group multiple saved drawers into a single project, label each one with a location, and treat the whole kitchen as one design.
+
+#### Data shape
+
+```swift
+struct KitchenPlan {
+    var id: UUID
+    var name: String                  // "Main Kitchen", "Cabin Kitchen", …
+    var date: Date
+    var drawerEntries: [Entry]
+
+    struct Entry {
+        var id: UUID
+        var drawerId: UUID            // SavedDrawer.id reference
+        var location: String          // "Top drawer left of sink"
+        var order: Int
+    }
+}
+```
+
+Plans live in `DrawerStore.kitchenPlans`, persisted to `UserDefaults`. Each entry references a saved drawer by id and adds a free-form location label.
+
+#### Navigation
+
+Plans don't need their own tab — there's a banner at the top of the **Saved** tab that shows the plan count and opens `KitchenPlansListView`. From there:
+
+```text
+KitchenPlansListView ── tap plan ──▶ KitchenPlanDetailView
+                                       ├── header (drawer count + total slot count)
+                                       ├── per-drawer rows (thumbnail + location)
+                                       │   └── tap row ──▶ LayoutResultView
+                                       └── "Add drawer to this plan"
+                                              └── AddDrawerToPlanSheet
+                                                     (only shows drawers
+                                                      not already in plan)
+```
+
+Renaming and deleting plans live in the toolbar `ellipsis.circle` menu on the detail view.
+
+---
+
+### 8.8 Live Activity for Print Progress *(v0.2)*
+
+#### What it does, in plain English
+
+After exporting a `.gcode.3mf` and starting the actual print on your Bambu A1, tap **Track print** in the print prep view to start an in-app countdown. The tracker shows current phase ("Heating bed" → "Calibrating" → "Printing" → "Finishing"), grams of filament, time remaining, and a progress bar.
+
+#### The architecture
+
+```text
+PrintPrepView
+  ↓ user taps "Track print"
+PrintProgressManager.shared.start(attributes:)
+  ├── stores PrintActivityAttributes (drawer name, printer, total grams,
+  │                                   total seconds)
+  ├── creates ContentState (progress 0..1, remainingSeconds, statusLabel,
+  │                         isComplete)
+  ├── if iOS 16.1+ and Activities enabled:
+  │      Activity<PrintActivityAttributes>.request(...)  ← Lock Screen
+  └── starts a 1-second Timer that ticks `tick()`
+                ↓
+              tick() updates progress + statusLabel based on elapsed time;
+              push the new ContentState to the activity (if any) and
+              publish the @Published state for the SwiftUI view
+                ↓
+PrintTrackerView (in-app fallback) renders progress bar + stats + actions
+```
+
+#### Lock Screen / Dynamic Island
+
+To get the Live Activity rendering on the Lock Screen and Dynamic Island, add a Widget Extension target ("DrawerWidgets") in Xcode and reference `PrintActivityAttributes` from a shared file. Step-by-step instructions live in the header comment of `Drawer/PrintActivity.swift`. Until that target exists, the in-app `PrintTrackerView` provides equivalent visual feedback.
+
+The `Activity.request(...)` call is wrapped in `#if canImport(ActivityKit)` and gracefully no-ops if the framework isn't available or the user has Activities disabled.
+
+---
+
+### 8.9 Liquid Glass UI
 
 iOS 26 introduced the **Liquid Glass** material — a dynamic, refractive, content-aware glass effect. Drawer uses the *real* APIs (not a custom approximation):
 
@@ -657,38 +829,27 @@ The conversion happens exactly once, in `PrintModelGenerator.makeOrganizer`, usi
 
 ## 10. Persistence
 
-`DrawerStore` is an `ObservableObject` injected into the SwiftUI environment. It stores an array of `SavedDrawer`s as a JSON blob in `UserDefaults`:
+`DrawerStore` is an `ObservableObject` injected into the SwiftUI environment. It owns four persisted collections, each backed by its own `UserDefaults` key:
 
 ```swift
 class DrawerStore: ObservableObject {
-    @Published var savedDrawers: [SavedDrawer] = []
-    private let key = "savedDrawers"
+    @Published var savedDrawers: [SavedDrawer]                  // every saved drawer
+    @Published var userTemplates: [UserDefinedTemplate]         // custom-dimension modules (v0.2)
+    @Published var kitchenPlans: [KitchenPlan]                  // multi-drawer projects (v0.2)
+    @Published var costPerKg: Double = 25.0                     // filament price (v0.2)
 
-    func save(_ drawer: SavedDrawer) {
-        savedDrawers.insert(drawer, at: 0)         // newest first
-        persist()
-    }
-
-    private func persist() {
-        if let data = try? JSONEncoder().encode(savedDrawers) {
-            UserDefaults.standard.set(data, forKey: key)
-        }
-    }
-
-    private func load() {
-        if let data = UserDefaults.standard.data(forKey: key),
-           let drawers = try? JSONDecoder().decode([SavedDrawer].self, from: data) {
-            savedDrawers = drawers
-        }
-    }
+    func save(_ drawer: SavedDrawer)            // persistDrawers()
+    func addTemplate(_ template: UserDefinedTemplate)   // persistTemplates()
+    func savePlan(_ plan: KitchenPlan)          // persistPlans()
+    // costPerKg uses a property observer to write directly to UserDefaults
 }
 ```
 
 Why `UserDefaults` and not Core Data / SwiftData?
 
-- The dataset is small (a few KB per drawer + a JPEG thumbnail).
-- Schema is flat — no relationships to traverse.
-- `Codable` handles backward-compatibility cleanly. `DrawerMeasurement` even has a custom `init(from: Decoder)` that recognizes the legacy `usedLiDAR: Bool` field and migrates it to the new `source: MeasurementSource` enum.
+- The dataset is small — a few KB per drawer plus an optional JPEG thumbnail. Even a heavy user with 50 drawers, 20 custom templates, and 5 kitchen plans stays well under 1 MB.
+- Schema is flat — no relationships to traverse. Kitchen plans reference drawers by `UUID`, but that's a manual lookup, not a foreign-key constraint.
+- `Codable` handles backward-compatibility cleanly. `DrawerMeasurement` recognizes the legacy `usedLiDAR: Bool` field from v0.0 saves and migrates it to the new `source: MeasurementSource` enum. `OrganizerItem`'s tier/`stacksOn` fields and `PrintableModule`'s `tier`/`zOffset`/`splitPart*`/`isLocatingLip` fields all default cleanly when missing, so v0.1.x saves still load on v0.2.0.
 
 If the data ever outgrows this approach, swapping in SwiftData would only touch this one file.
 
@@ -704,8 +865,14 @@ If the data ever outgrows this approach, swapping in SwiftData would only touch 
 | **ARKit** | Apple's framework for augmented reality and depth sensing. Drawer uses it for LiDAR scans. |
 | **LiDAR** | A laser-based depth sensor in newer iPhones. Lets the phone measure how far away things are with high accuracy. |
 | **Vision framework** | Apple's image-analysis framework. Drawer uses it to find rectangles (the drawer rim, the credit-card reference) in photos. |
-| **SceneKit** | Apple's older 3D graphics framework. Drawer uses it for the 3D preview because it has free camera controls (drag/pinch). |
+| **SceneKit** | Apple's older 3D graphics framework. Drawer uses it for the 3D preview, the 3D layout viewer, and the AR overlay because it has free camera controls (drag/pinch). |
+| **AR / ARKit** | Augmented Reality — overlaying virtual content on the live camera feed. ARKit provides world tracking and plane detection so Drawer can find the floor of your drawer and anchor the virtual layout to it. |
+| **Plane detection** | ARKit's ability to find flat horizontal or vertical surfaces in the camera feed (table tops, drawer floors, walls). Drawer's AR view waits for a horizontal plane before letting you tap to place. |
+| **ActivityKit** | Apple framework introduced in iOS 16.1 for Live Activities — small persistent UI elements that show on the Lock Screen and in the Dynamic Island while a long-running task is in progress. Drawer uses it to track print progress. |
+| **Live Activity** | An interactive widget that survives outside the app — visible on Lock Screen and Dynamic Island. Requires a Widget Extension target to render the actual UI. |
 | **Mesh** | A 3D shape made of triangles. Each tray module is a mesh. |
+| **Locating lip** | The small downward protrusion on the bottom of a tier-2 organizer that drops into the tier-1 cavity to keep the stack from sliding. Generated automatically and printed as a separate-but-fused piece. |
+| **Auto-split** | When a tray's footprint is bigger than the printer bed, Drawer bisects it into two or more snap-together pieces with a labelled "(1/2)" / "(2/2)" suffix. |
 | **G-code** | The language 3D printers speak. Every printer move (`G1 X100 Y50 E0.5`) is a line of G-code. |
 | **3MF** | The modern, ZIP-based file format that holds a 3D model + slicing settings + thumbnails, all in one file. Bambu Studio's `.gcode.3mf` is a 3MF with extra parts. |
 | **Slicer** | Software that takes a 3D model and converts it into G-code by computing layer-by-layer toolpaths. |
@@ -713,7 +880,7 @@ If the data ever outgrows this approach, swapping in SwiftData would only touch 
 | **Toolpath** | A sequence of points the printer's nozzle should follow, plus how much filament to extrude along the way. |
 | **Infill** | The pattern of plastic used inside a part to give it strength without filling it solid. The trays here only have infill in the bottom band. |
 | **Skirt** | A loose loop of plastic printed around the part(s) on layer 0 to prime the nozzle. |
-| **Bin packing** | The classic computer-science problem of fitting rectangles into a bigger rectangle. Drawer's layout engine is a specialized variant. |
+| **Bin packing** | The classic computer-science problem of fitting rectangles into a bigger rectangle. Drawer's layout engine is a specialized variant that also respects keep-out zones (obstacles) and groups items by semantic category. |
 | **`@Published` / `ObservableObject`** | SwiftUI's pattern for state that views automatically re-render when it changes. `DrawerStore` is an example. |
 | **`UserDefaults`** | A built-in iOS key/value store, originally for app preferences. Small data lives here. |
 

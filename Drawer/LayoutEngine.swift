@@ -295,11 +295,12 @@ class LayoutEngine {
     static func generateLayout(measurement: DrawerMeasurement,
                                 purpose: DrawerPurpose,
                                 shuffled: Bool = false,
-                                selectedIds: Set<String>? = nil) -> DrawerLayout {
+                                selectedIds: Set<String>? = nil,
+                                userTemplates: [UserDefinedTemplate] = []) -> DrawerLayout {
         let drawerW = measurement.widthInches
         let drawerD = measurement.depthInches
 
-        let allTemplates = templates(for: purpose)
+        let allTemplates = templates(for: purpose) + userTemplates.map(makeTemplate(from:))
         let activeTemplates: [OrganizerTemplate] = {
             guard let ids = selectedIds else { return allTemplates }
             // If empty selection, treat as recommended fallback so we still
@@ -345,11 +346,21 @@ class LayoutEngine {
         }
 
         let result = packShelf(drawerW: drawerW, drawerD: drawerD,
-                                catalog: catalog, purpose: purpose)
+                                catalog: catalog, purpose: purpose,
+                                obstacles: measurement.obstacles)
 
         var warnings: [String] = []
         if result.placed.isEmpty {
             warnings.append("None of the organizers fit this drawer at the given size.")
+        }
+        if !measurement.obstacles.isEmpty {
+            let lostNames = result.unplaced.filter { name in
+                // Items unplaced specifically because of obstacle collisions.
+                catalog.first { $0.name == name } != nil
+            }
+            if !lostNames.isEmpty {
+                warnings.append("\(measurement.obstacles.count) obstacle(s) blocked some placements. Consider scanning a clear drawer area or removing the obstacles in the review screen.")
+            }
         }
 
         let totalArea = drawerW * drawerD
@@ -370,11 +381,30 @@ class LayoutEngine {
     /// Backwards-compatible alias.
     static func regenerateLayout(measurement: DrawerMeasurement,
                                   purpose: DrawerPurpose,
-                                  selectedIds: Set<String>? = nil) -> DrawerLayout {
+                                  selectedIds: Set<String>? = nil,
+                                  userTemplates: [UserDefinedTemplate] = []) -> DrawerLayout {
         generateLayout(measurement: measurement,
                        purpose: purpose,
                        shuffled: true,
-                       selectedIds: selectedIds)
+                       selectedIds: selectedIds,
+                       userTemplates: userTemplates)
+    }
+
+    /// Convert a user-defined template into the engine's canonical template
+    /// type so it flows through the same placement pipeline. User-custom
+    /// items live in their own `user_custom` group so they cluster together
+    /// at the end of the layout (after the curated catalogs).
+    static func makeTemplate(from u: UserDefinedTemplate) -> OrganizerTemplate {
+        OrganizerTemplate(
+            id: "user.\(u.id.uuidString)",
+            name: u.name,
+            width: u.widthInches,
+            height: u.heightInches,
+            hue: u.hue,
+            priority: 5,
+            group: "user_custom",
+            groupOrder: max(0, Int(u.date.timeIntervalSince1970.truncatingRemainder(dividingBy: 1_000_000)))
+        )
     }
 
     // MARK: - Fit-aware editing
@@ -444,6 +474,7 @@ class LayoutEngine {
         let drawerW = layout.measurement.widthInches
         let drawerD = layout.measurement.depthInches
         let padding = shelfPadding
+        let obstacles = layout.measurement.obstacles
 
         var shelves = reconstructShelves(items: layout.items,
                                           padding: padding,
@@ -477,7 +508,10 @@ class LayoutEngine {
             for i in 0..<shelves.count where shelves[i].primaryGroup == template.group {
                 let shelf = shelves[i]
                 let availW = drawerW - shelf.xCursor - padding
-                if w <= availW + 0.01 && h <= shelf.height + 0.01 {
+                if w <= availW + 0.01 && h <= shelf.height + 0.01
+                    && !collidesWithObstacles(obstacles,
+                                                x: shelf.xCursor, y: shelf.y,
+                                                w: w, h: h) {
                     shelves[i].xCursor += w + padding
                     return commit(shelf.xCursor, shelf.y, w, h)
                 }
@@ -489,7 +523,8 @@ class LayoutEngine {
             let (w, h) = (orient.w, orient.h)
             if w > drawerW - 2 * padding { continue }
             let nextY = shelves.last.map { $0.y + $0.height + padding } ?? padding
-            if nextY + h <= drawerD - padding {
+            if nextY + h <= drawerD - padding
+                && !collidesWithObstacles(obstacles, x: padding, y: nextY, w: w, h: h) {
                 return commit(padding, nextY, w, h)
             }
         }
@@ -501,7 +536,10 @@ class LayoutEngine {
             for i in 0..<shelves.count {
                 let shelf = shelves[i]
                 let availW = drawerW - shelf.xCursor - padding
-                if w <= availW + 0.01 && h <= shelf.height + 0.01 {
+                if w <= availW + 0.01 && h <= shelf.height + 0.01
+                    && !collidesWithObstacles(obstacles,
+                                                x: shelf.xCursor, y: shelf.y,
+                                                w: w, h: h) {
                     shelves[i].xCursor += w + padding
                     return commit(shelf.xCursor, shelf.y, w, h)
                 }
@@ -908,7 +946,8 @@ class LayoutEngine {
     private static func packShelf(drawerW: Double,
                                    drawerD: Double,
                                    catalog: [OrganizerTemplate],
-                                   purpose: DrawerPurpose) -> PackResult {
+                                   purpose: DrawerPurpose,
+                                   obstacles: [DrawerObstacle] = []) -> PackResult {
         let pad = shelfPadding
         let usableW = drawerW - 2 * pad
         let usableH = drawerD - 2 * pad
@@ -946,6 +985,7 @@ class LayoutEngine {
                     if tryCommitUnit(unit, onShelf: i, shelves: &shelves,
                                       drawerW: drawerW,
                                       pad: pad,
+                                      obstacles: obstacles,
                                       placedItems: &placedItems) {
                         didPlace = true
                         break
@@ -956,7 +996,9 @@ class LayoutEngine {
                 // Strategy B: open a fresh shelf for this group.
                 let nextY = shelves.last.map { $0.y + $0.height + pad } ?? pad
                 if nextY + unit.totalH <= drawerD - pad + 0.01
-                    && unit.totalW <= usableW + 0.01 {
+                    && unit.totalW <= usableW + 0.01
+                    && !unitCollidesWithObstacles(unit, atX: pad, y: nextY,
+                                                   obstacles: obstacles) {
                     commitUnit(unit, atX: pad, y: nextY,
                                into: &placedItems)
                     shelves.append(PackShelf(
@@ -974,6 +1016,7 @@ class LayoutEngine {
                     if tryCommitUnit(unit, onShelf: i, shelves: &shelves,
                                       drawerW: drawerW,
                                       pad: pad,
+                                      obstacles: obstacles,
                                       placedItems: &placedItems) {
                         didPlace = true
                         break
@@ -991,6 +1034,7 @@ class LayoutEngine {
                                              drawerW: drawerW,
                                              drawerD: drawerD,
                                              pad: pad,
+                                             obstacles: obstacles,
                                              shelves: &shelves,
                                              placedItems: &placedItems) {
                     unplaced.append(template.name)
@@ -1002,6 +1046,39 @@ class LayoutEngine {
         return PackResult(placed: placedItems, unplaced: unplaced)
     }
 
+    /// Returns true if any obstacle overlaps the rectangle (x, y, w, h).
+    /// Used by the packer to skip placements that would land on a raised
+    /// area / rail / drain hole / dishwasher screw inside the drawer.
+    private static func collidesWithObstacles(_ obstacles: [DrawerObstacle],
+                                                x: Double, y: Double,
+                                                w: Double, h: Double) -> Bool {
+        guard !obstacles.isEmpty else { return false }
+        for o in obstacles {
+            if o.overlaps(x: x, y: y, width: w, height: h) {
+                return true
+            }
+        }
+        return false
+    }
+
+    /// Returns true if any of a unit's internal items would overlap an
+    /// obstacle when placed at (baseX, baseY).
+    private static func unitCollidesWithObstacles(_ unit: PlacementUnit,
+                                                    atX baseX: Double,
+                                                    y baseY: Double,
+                                                    obstacles: [DrawerObstacle]) -> Bool {
+        guard !obstacles.isEmpty else { return false }
+        for item in unit.internalItems {
+            if collidesWithObstacles(obstacles,
+                                      x: baseX + item.dx,
+                                      y: baseY + item.dy,
+                                      w: item.w, h: item.h) {
+                return true
+            }
+        }
+        return false
+    }
+
     /// Try to place a `PlacementUnit` onto an existing shelf. Returns true on
     /// success and mutates the shelf cursor / placed items in place.
     private static func tryCommitUnit(_ unit: PlacementUnit,
@@ -1009,10 +1086,13 @@ class LayoutEngine {
                                        shelves: inout [PackShelf],
                                        drawerW: Double,
                                        pad: Double,
+                                       obstacles: [DrawerObstacle] = [],
                                        placedItems: inout [OrganizerItem]) -> Bool {
         let shelf = shelves[i]
         let availW = drawerW - shelf.xCursor - pad
-        if unit.totalW <= availW + 0.01 && unit.totalH <= shelf.height + 0.01 {
+        if unit.totalW <= availW + 0.01 && unit.totalH <= shelf.height + 0.01
+            && !unitCollidesWithObstacles(unit, atX: shelf.xCursor, y: shelf.y,
+                                           obstacles: obstacles) {
             commitUnit(unit, atX: shelf.xCursor, y: shelf.y, into: &placedItems)
             shelves[i].xCursor += unit.totalW + pad
             return true
@@ -1043,12 +1123,14 @@ class LayoutEngine {
 
     /// Per-item fallback placement when the whole-group block didn't fit.
     /// Same 3-strategy preference as the unit placer (same-group shelf →
-    /// new shelf → cross-group shelf).
+    /// new shelf → cross-group shelf). Skips placements that overlap any
+    /// drawer obstacle.
     private static func placeIndividualTemplate(
         _ template: OrganizerTemplate,
         drawerW: Double,
         drawerD: Double,
         pad: Double,
+        obstacles: [DrawerObstacle] = [],
         shelves: inout [PackShelf],
         placedItems: inout [OrganizerItem]
     ) -> Bool {
@@ -1070,7 +1152,10 @@ class LayoutEngine {
             for i in 0..<shelves.count where shelves[i].primaryGroup == template.group {
                 let shelf = shelves[i]
                 let availW = drawerW - shelf.xCursor - pad
-                if w <= availW + 0.01 && h <= shelf.height + 0.01 {
+                if w <= availW + 0.01 && h <= shelf.height + 0.01
+                    && !collidesWithObstacles(obstacles,
+                                                x: shelf.xCursor, y: shelf.y,
+                                                w: w, h: h) {
                     placedItems.append(commit(shelf.xCursor, shelf.y, w, h))
                     shelves[i].xCursor += w + pad
                     return true
@@ -1082,7 +1167,8 @@ class LayoutEngine {
         for (w, h) in orientations {
             if w > drawerW - 2 * pad { continue }
             let nextY = shelves.last.map { $0.y + $0.height + pad } ?? pad
-            if nextY + h <= drawerD - pad + 0.01 {
+            if nextY + h <= drawerD - pad + 0.01
+                && !collidesWithObstacles(obstacles, x: pad, y: nextY, w: w, h: h) {
                 placedItems.append(commit(pad, nextY, w, h))
                 shelves.append(PackShelf(
                     y: nextY, height: h,
@@ -1099,7 +1185,10 @@ class LayoutEngine {
             for i in 0..<shelves.count {
                 let shelf = shelves[i]
                 let availW = drawerW - shelf.xCursor - pad
-                if w <= availW + 0.01 && h <= shelf.height + 0.01 {
+                if w <= availW + 0.01 && h <= shelf.height + 0.01
+                    && !collidesWithObstacles(obstacles,
+                                                x: shelf.xCursor, y: shelf.y,
+                                                w: w, h: h) {
                     placedItems.append(commit(shelf.xCursor, shelf.y, w, h))
                     shelves[i].xCursor += w + pad
                     return true

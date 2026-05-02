@@ -31,7 +31,10 @@ struct Print3DPreview: View {
                     .foregroundStyle(.white.opacity(0.4))
                     .tracking(2)
                 Spacer()
-                Text("\(organizer.modules.count) module\(organizer.modules.count == 1 ? "" : "s")")
+                Text({
+                    let count = organizer.modules.filter { !$0.isLocatingLip }.count
+                    return "\(count) module\(count == 1 ? "" : "s")"
+                }())
                     .font(.caption.monospaced())
                     .foregroundStyle(.white.opacity(0.45))
             }
@@ -155,11 +158,17 @@ struct Print3DPreview: View {
         // Modules — each as its own colored node. The mesh's local origin is
         // the module's top-left corner, so we offset by drawer center to
         // place the model around (0,0,0) in world space.
+        // Tier-2 modules float above their tier-1 parent at `zOffsetMm`.
         for module in organizer.modules {
             let node = makeModuleNode(module)
             let topLeftX = module.originXMm - drawerW / 2
             let topLeftZ = module.originYMm - drawerD / 2
-            node.position = SCNVector3(Float(topLeftX), 0, Float(topLeftZ))
+            // SceneKit uses Y-up; drawer Z (height) becomes scene Y.
+            node.position = SCNVector3(
+                Float(topLeftX),
+                Float(module.zOffsetMm),
+                Float(topLeftZ)
+            )
             model.addChildNode(node)
         }
 
@@ -183,11 +192,14 @@ struct Print3DPreview: View {
 
         // Determine the dominant slot for this module — outer wall is the
         // most visible feature, so we tint by that.
-        let slotIndex = assignment.slot(for: module.id, feature: .outerWall)
+        let lookupId = module.originalModuleId ?? module.id
+        let slotIndex = assignment.slot(for: lookupId, feature: .outerWall)
         let color = colorForSlot(slotIndex, fallback: module.tintHex)
 
         let mat = SCNMaterial()
-        mat.diffuse.contents = color
+        mat.diffuse.contents = module.isLocatingLip
+            ? color.withAlphaComponent(0.55)   // de-emphasise the lip
+            : color
         mat.lightingModel = .physicallyBased
         mat.metalness.contents = 0.05
         mat.roughness.contents = 0.55

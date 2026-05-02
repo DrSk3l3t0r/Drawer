@@ -13,6 +13,7 @@ struct MeasurementReviewView: View {
     @Binding var navigateToPurpose: Bool
 
     @State private var isMetric = false
+    @State private var showObstacles = false
     @FocusState private var focusedField: Field?
     @Environment(\.dismiss) private var dismiss
 
@@ -32,6 +33,7 @@ struct MeasurementReviewView: View {
                 confidenceSection
                 manualEntrySection
                 adjustmentSection
+                obstaclesSummary
                 continueButton
             }
         }
@@ -51,6 +53,60 @@ struct MeasurementReviewView: View {
                 Button("Done") { focusedField = nil }
             }
         }
+        .sheet(isPresented: $showObstacles) {
+            ObstacleMarkingView(measurement: $measurement)
+        }
+    }
+
+    /// Summary card + entry point for the obstacle-marking sheet. Sits just
+    /// above the Continue button so users can opt into it without leaving
+    /// the review screen.
+    private var obstaclesSummary: some View {
+        Button {
+            showObstacles = true
+        } label: {
+            HStack(spacing: 12) {
+                Image(systemName: "exclamationmark.triangle.fill")
+                    .font(.system(size: 18))
+                    .foregroundStyle(.orange)
+                    .frame(width: 36, height: 36)
+                    .background(Circle().fill(.orange.opacity(0.15)))
+
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(measurement.obstacles.isEmpty
+                         ? "Mark drawer obstacles"
+                         : "\(measurement.obstacles.count) obstacle\(measurement.obstacles.count == 1 ? "" : "s") marked")
+                        .font(.subheadline.bold())
+                        .foregroundStyle(.white)
+                    Text(measurement.obstacles.isEmpty
+                         ? "Optional — tag rails, drain holes, or raised areas the layout should avoid"
+                         : "Tap to edit forbidden zones")
+                        .font(.caption)
+                        .foregroundStyle(.white.opacity(0.5))
+                }
+
+                Spacer()
+
+                Image(systemName: "chevron.right")
+                    .font(.caption)
+                    .foregroundStyle(.white.opacity(0.3))
+            }
+            .padding(14)
+            .background(
+                RoundedRectangle(cornerRadius: 14)
+                    .fill(.white.opacity(0.05))
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 14)
+                            .stroke(measurement.obstacles.isEmpty
+                                    ? .white.opacity(0.06)
+                                    : .orange.opacity(0.3),
+                                    lineWidth: 1)
+                    )
+            )
+            .padding(.horizontal, 20)
+            .padding(.top, 16)
+        }
+        .buttonStyle(PressableStyle())
     }
 
     // MARK: - Header

@@ -7,6 +7,14 @@ classDiagram
         +Double confidenceScore
         +Bool heightMeasured
         +NormalizedQuad? capturedQuad
+        +Array~DrawerObstacle~ obstacles
+    }
+
+    class DrawerObstacle {
+        +UUID id
+        +String name
+        +Double x, y, width, height
+        +overlaps(rect) Bool
     }
 
     class MeasurementSource {
@@ -47,11 +55,21 @@ classDiagram
         +Int groupOrder
     }
 
+    class UserDefinedTemplate {
+        +UUID id
+        +String name
+        +Double widthInches, heightInches
+        +Double hue
+        +Date date
+    }
+
     class OrganizerItem {
         +UUID id
         +String name
         +Double x, y, width, height
         +Double colorHue, colorSaturation, colorBrightness
+        +Int tier
+        +UUID? stacksOn
     }
 
     class DrawerLayout {
@@ -72,12 +90,32 @@ classDiagram
         +Data? photoData
     }
 
+    class KitchenPlan {
+        +UUID id
+        +String name
+        +Date date
+        +Array~Entry~ drawerEntries
+    }
+
+    class KitchenPlanEntry {
+        +UUID id
+        +UUID drawerId
+        +String location
+        +Int order
+    }
+
     class PrintableModule {
         +UUID id
         +Double outerWidthMm, outerDepthMm, heightMm
         +Double originXMm, originYMm
         +Double wallThicknessMm
         +String tintHex
+        +Int tier
+        +Double zOffsetMm
+        +Int? splitPartIndex
+        +Int? splitPartCount
+        +UUID? originalModuleId
+        +Bool isLocatingLip
     }
 
     class PrintableOrganizer {
@@ -88,6 +126,17 @@ classDiagram
         +FilamentProfile filament
         +PrinterProfile printer
         +DrawerPurpose purpose
+    }
+
+    class PrintSettings {
+        +Double layerHeightMm
+        +Double wallThicknessMm
+        +Double bottomThicknessMm
+        +Double toleranceMm
+        +Double heightMm
+        +Double infillPercent
+        +Bool autoSplitOversized
+        +Double tier2HeightMm
     }
 
     class AMSLitePlate {
@@ -106,14 +155,43 @@ classDiagram
         +FilamentColor color
     }
 
+    class PrintActivityAttributes {
+        +String drawerName
+        +String printerName
+        +Double totalGrams
+        +Int totalSeconds
+    }
+
+    class ContentState {
+        +Double progress
+        +Int remainingSeconds
+        +String statusLabel
+        +Bool isComplete
+    }
+
+    class DrawerStore {
+        +Array~SavedDrawer~ savedDrawers
+        +Array~UserDefinedTemplate~ userTemplates
+        +Array~KitchenPlan~ kitchenPlans
+        +Double costPerKg
+    }
+
     DrawerMeasurement --> MeasurementSource
     DrawerMeasurement --> NormalizedQuad
+    DrawerMeasurement --> DrawerObstacle
     DrawerLayout --> DrawerMeasurement
     DrawerLayout --> DrawerPurpose
     DrawerLayout --> OrganizerItem
     SavedDrawer --> DrawerLayout
+    KitchenPlan --> KitchenPlanEntry
+    KitchenPlanEntry --> SavedDrawer : refs by id
     OrganizerTemplate --> DrawerPurpose : grouped by
     PrintableOrganizer --> PrintableModule
     PrintableOrganizer --> DrawerPurpose
+    PrintableOrganizer --> PrintSettings
     AMSLitePlate --> FilamentProfile
     AMSLiteAssignment --> AMSLitePlate
+    PrintActivityAttributes --> ContentState : has
+    DrawerStore --> SavedDrawer
+    DrawerStore --> UserDefinedTemplate
+    DrawerStore --> KitchenPlan

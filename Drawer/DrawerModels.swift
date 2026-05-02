@@ -148,6 +148,39 @@ enum MeasurementSource: String, Codable, Equatable {
     }
 }
 
+// MARK: - Drawer Obstacle
+//
+// Real drawers often have raised areas (rails, dividers, dishwasher screws,
+// drain holes, plastic feet) that an organizer can't sit on top of. The user
+// can mark these as forbidden zones during the measurement-review step; the
+// layout engine then treats them as keep-out regions when packing.
+
+struct DrawerObstacle: Codable, Equatable, Hashable, Identifiable {
+    var id: UUID = UUID()
+    var name: String = "Obstacle"
+    /// Position in inches from drawer's top-left corner (top-down view).
+    var x: Double
+    var y: Double
+    var width: Double
+    var height: Double
+
+    var rect: (minX: Double, minY: Double, maxX: Double, maxY: Double) {
+        (x, y, x + width, y + height)
+    }
+
+    /// Returns true if this obstacle's rectangle overlaps the given rect.
+    /// Used by the packer to skip placement positions that intersect.
+    func overlaps(x ox: Double, y oy: Double,
+                  width ow: Double, height oh: Double,
+                  padding: Double = 0.15) -> Bool {
+        let r = rect
+        return !(ox + ow + padding <= r.minX
+                 || ox - padding >= r.maxX
+                 || oy + oh + padding <= r.minY
+                 || oy - padding >= r.maxY)
+    }
+}
+
 // MARK: - Drawer Measurement
 
 struct DrawerMeasurement: Codable, Equatable {
@@ -169,6 +202,11 @@ struct DrawerMeasurement: Codable, Equatable {
     /// screen uses these to compute scale factors when the user edits.
     var originalWidthInches: Double?
     var originalDepthInches: Double?
+
+    /// Obstacles inside the drawer (rails, raised areas, dishwasher screws,
+    /// drain holes, plastic feet, etc.) — keep-out zones the layout engine
+    /// must avoid when placing organizer modules.
+    var obstacles: [DrawerObstacle] = []
 
     var widthCm: Double { widthInches * 2.54 }
     var depthCm: Double { depthInches * 2.54 }
@@ -201,7 +239,8 @@ struct DrawerMeasurement: Codable, Equatable {
          heightMeasured: Bool = false,
          capturedQuad: NormalizedQuad? = nil,
          originalWidthInches: Double? = nil,
-         originalDepthInches: Double? = nil) {
+         originalDepthInches: Double? = nil,
+         obstacles: [DrawerObstacle] = []) {
         self.widthInches = widthInches
         self.depthInches = depthInches
         self.heightInches = heightInches
@@ -211,6 +250,7 @@ struct DrawerMeasurement: Codable, Equatable {
         self.capturedQuad = capturedQuad
         self.originalWidthInches = originalWidthInches ?? widthInches
         self.originalDepthInches = originalDepthInches ?? depthInches
+        self.obstacles = obstacles
     }
 
     // Custom decoding so previously-saved drawers (which used `usedLiDAR`)
@@ -220,6 +260,7 @@ struct DrawerMeasurement: Codable, Equatable {
         case source, confidenceScore, heightMeasured
         case usedLiDAR
         case capturedQuad, originalWidthInches, originalDepthInches
+        case obstacles
     }
 
     init(from decoder: Decoder) throws {
@@ -232,6 +273,7 @@ struct DrawerMeasurement: Codable, Equatable {
         capturedQuad = try? c.decode(NormalizedQuad.self, forKey: .capturedQuad)
         originalWidthInches = (try? c.decode(Double.self, forKey: .originalWidthInches)) ?? widthInches
         originalDepthInches = (try? c.decode(Double.self, forKey: .originalDepthInches)) ?? depthInches
+        obstacles = (try? c.decode([DrawerObstacle].self, forKey: .obstacles)) ?? []
         if let raw = try? c.decode(MeasurementSource.self, forKey: .source) {
             source = raw
         } else if let usedLiDAR = try? c.decode(Bool.self, forKey: .usedLiDAR) {
@@ -253,6 +295,7 @@ struct DrawerMeasurement: Codable, Equatable {
         try c.encodeIfPresent(capturedQuad, forKey: .capturedQuad)
         try c.encodeIfPresent(originalWidthInches, forKey: .originalWidthInches)
         try c.encodeIfPresent(originalDepthInches, forKey: .originalDepthInches)
+        try c.encode(obstacles, forKey: .obstacles)
     }
 }
 
@@ -318,9 +361,16 @@ struct OrganizerItem: Identifiable, Codable, Equatable {
     var colorHue: Double
     var colorSaturation: Double
     var colorBrightness: Double
-    
+    /// Stack level. 1 = base (sitting on the drawer floor). 2 = sits on top
+    /// of a tier-1 module. Tier-2 modules share their tier-1 parent's XY
+    /// footprint and start at the parent's full height.
+    var tier: Int = 1
+    /// If this is a tier-2 module, the id of the tier-1 module it stacks on.
+    var stacksOn: UUID? = nil
+
     init(name: String, x: Double, y: Double, width: Double, height: Double,
-         hue: Double = 0.5, saturation: Double = 0.6, brightness: Double = 0.85) {
+         hue: Double = 0.5, saturation: Double = 0.6, brightness: Double = 0.85,
+         tier: Int = 1, stacksOn: UUID? = nil) {
         self.id = UUID()
         self.name = name
         self.x = x
@@ -330,10 +380,84 @@ struct OrganizerItem: Identifiable, Codable, Equatable {
         self.colorHue = hue
         self.colorSaturation = saturation
         self.colorBrightness = brightness
+        self.tier = tier
+        self.stacksOn = stacksOn
     }
-    
+
     var color: Color {
         Color(hue: colorHue, saturation: colorSaturation, brightness: colorBrightness)
+    }
+
+    // Backward-compat: old saved layouts had no `tier` field.
+    private enum CodingKeys: String, CodingKey {
+        case id, name, x, y, width, height
+        case colorHue, colorSaturation, colorBrightness
+        case tier, stacksOn
+    }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        id = try c.decode(UUID.self, forKey: .id)
+        name = try c.decode(String.self, forKey: .name)
+        x = try c.decode(Double.self, forKey: .x)
+        y = try c.decode(Double.self, forKey: .y)
+        width = try c.decode(Double.self, forKey: .width)
+        height = try c.decode(Double.self, forKey: .height)
+        colorHue = try c.decode(Double.self, forKey: .colorHue)
+        colorSaturation = try c.decode(Double.self, forKey: .colorSaturation)
+        colorBrightness = try c.decode(Double.self, forKey: .colorBrightness)
+        tier = (try? c.decode(Int.self, forKey: .tier)) ?? 1
+        stacksOn = try? c.decode(UUID.self, forKey: .stacksOn)
+    }
+}
+
+// MARK: - User-Defined Templates
+//
+// Lets users define their own organizer module dimensions outside the curated
+// per-purpose catalogs. Persisted in `DrawerStore.userTemplates` so they
+// follow the user across sessions and show up in any drawer's edit sheet.
+
+struct UserDefinedTemplate: Identifiable, Codable, Equatable, Hashable {
+    var id: UUID = UUID()
+    var name: String
+    var widthInches: Double
+    var heightInches: Double
+    var hue: Double = 0.55
+    var date: Date = Date()
+}
+
+// MARK: - Kitchen Plan
+//
+// A grouping of saved drawers under a single kitchen identity, with optional
+// per-drawer location notes ("upper-left of stove", "junk drawer near sink").
+// Lets users design and review their entire kitchen as one project.
+
+struct KitchenPlan: Identifiable, Codable, Equatable {
+    var id: UUID = UUID()
+    var name: String
+    var date: Date = Date()
+    var drawerEntries: [Entry] = []
+
+    struct Entry: Codable, Equatable, Hashable, Identifiable {
+        var id: UUID = UUID()
+        var drawerId: UUID    // SavedDrawer.id reference
+        var location: String  // human label like "Top drawer, left of sink"
+        var order: Int        // display order in the plan
+    }
+
+    /// Total filament across all drawers in this plan, when known.
+    /// Zeroes out gracefully for missing drawers.
+    func totalGrams(in store: DrawerStore) -> Double {
+        drawerEntries.reduce(0) { acc, entry in
+            guard let drawer = store.savedDrawers.first(where: { $0.id == entry.drawerId })
+            else { return acc }
+            // Use a default density approximation for the layout's items. The
+            // real value lives in the print pipeline, but we don't always
+            // need to slice for a kitchen-level estimate.
+            return acc + drawer.layout.items.reduce(0) { sum, item in
+                sum + (item.width * item.height * 0.5)   // rough cm³ proxy
+            }
+        }
     }
 }
 
@@ -415,38 +539,102 @@ struct SavedDrawer: Identifiable, Codable {
 
 class DrawerStore: ObservableObject {
     @Published var savedDrawers: [SavedDrawer] = []
-    
-    private let key = "savedDrawers"
-    
+    @Published var userTemplates: [UserDefinedTemplate] = []
+    @Published var kitchenPlans: [KitchenPlan] = []
+    /// User-set filament cost per kilogram, used by the cost calculator.
+    /// Default 25 USD/kg matches typical PLA pricing in 2026.
+    @Published var costPerKg: Double = 25.0 {
+        didSet { UserDefaults.standard.set(costPerKg, forKey: costKey) }
+    }
+
+    private let drawersKey = "savedDrawers"
+    private let templatesKey = "userTemplates"
+    private let plansKey = "kitchenPlans"
+    private let costKey = "filamentCostPerKg"
+
     init() {
         load()
     }
-    
+
+    // MARK: Drawers
+
     func save(_ drawer: SavedDrawer) {
         savedDrawers.insert(drawer, at: 0)
-        persist()
+        persistDrawers()
     }
-    
+
     func delete(at offsets: IndexSet) {
         savedDrawers.remove(atOffsets: offsets)
-        persist()
+        persistDrawers()
     }
-    
+
     func delete(_ drawer: SavedDrawer) {
         savedDrawers.removeAll { $0.id == drawer.id }
-        persist()
+        persistDrawers()
     }
-    
-    private func persist() {
+
+    // MARK: User templates
+
+    func addTemplate(_ template: UserDefinedTemplate) {
+        userTemplates.insert(template, at: 0)
+        persistTemplates()
+    }
+
+    func deleteTemplate(_ template: UserDefinedTemplate) {
+        userTemplates.removeAll { $0.id == template.id }
+        persistTemplates()
+    }
+
+    // MARK: Kitchen plans
+
+    func savePlan(_ plan: KitchenPlan) {
+        if let idx = kitchenPlans.firstIndex(where: { $0.id == plan.id }) {
+            kitchenPlans[idx] = plan
+        } else {
+            kitchenPlans.insert(plan, at: 0)
+        }
+        persistPlans()
+    }
+
+    func deletePlan(_ plan: KitchenPlan) {
+        kitchenPlans.removeAll { $0.id == plan.id }
+        persistPlans()
+    }
+
+    // MARK: Persistence backing
+
+    private func persistDrawers() {
         if let data = try? JSONEncoder().encode(savedDrawers) {
-            UserDefaults.standard.set(data, forKey: key)
+            UserDefaults.standard.set(data, forKey: drawersKey)
         }
     }
-    
+
+    private func persistTemplates() {
+        if let data = try? JSONEncoder().encode(userTemplates) {
+            UserDefaults.standard.set(data, forKey: templatesKey)
+        }
+    }
+
+    private func persistPlans() {
+        if let data = try? JSONEncoder().encode(kitchenPlans) {
+            UserDefaults.standard.set(data, forKey: plansKey)
+        }
+    }
+
     private func load() {
-        if let data = UserDefaults.standard.data(forKey: key),
+        if let data = UserDefaults.standard.data(forKey: drawersKey),
            let drawers = try? JSONDecoder().decode([SavedDrawer].self, from: data) {
             savedDrawers = drawers
         }
+        if let data = UserDefaults.standard.data(forKey: templatesKey),
+           let templates = try? JSONDecoder().decode([UserDefinedTemplate].self, from: data) {
+            userTemplates = templates
+        }
+        if let data = UserDefaults.standard.data(forKey: plansKey),
+           let plans = try? JSONDecoder().decode([KitchenPlan].self, from: data) {
+            kitchenPlans = plans
+        }
+        let storedCost = UserDefaults.standard.double(forKey: costKey)
+        if storedCost > 0 { costPerKg = storedCost }
     }
 }

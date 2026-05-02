@@ -4,6 +4,8 @@ flowchart TB
     classDef slicer fill:#1f4a3a,stroke:#4caf80,color:#fff
     classDef bambu fill:#5e3a1c,stroke:#d18a4a,color:#fff
     classDef data fill:#4a1f3d,stroke:#b85488,color:#fff
+    classDef ar fill:#1f3d4a,stroke:#3aa8c4,color:#fff
+    classDef kitchen fill:#2d4a1f,stroke:#80a040,color:#fff
 
     App[DrawerApp]:::view --> CV[ContentView<br/>Home / Saved tabs<br/>+ Liquid Glass bar]:::view
 
@@ -14,16 +16,23 @@ flowchart TB
     Cap --> ME[MeasurementEngine<br/>credit-card scaling]:::engine
     Cap --> MR[MeasurementReviewView<br/>quad adjustment]:::view
 
+    MR --> OB[ObstacleMarkingView<br/>keep-out zones]:::view
     MR --> PS[PurposeSelectionView]:::view
-    PS --> LE[LayoutEngine<br/>group-aware packer]:::engine
+    PS --> LE[LayoutEngine<br/>group-aware packer<br/>obstacle + tier aware]:::engine
     LE --> LR[LayoutResultView<br/>blueprint + actions]:::view
 
-    LR --> ED[EditOrganizersSheet]:::view
+    LR --> ED[EditOrganizersSheet<br/>add / remove<br/>+ Custom dims<br/>+ Stack on top]:::view
+    LR --> AR[ARDrawerPreviewView<br/>real-scale AR overlay]:::ar
+    LR --> L3D[Layout3DView<br/>SceneKit + Explode]:::view
     LR --> DS[DrawerStore<br/>UserDefaults]:::data
-    LR --> PP[PrintPrepView<br/>AMS lite + slicer settings]:::view
+    LR --> PP[PrintPrepView<br/>AMS lite + slicer + cost]:::view
 
-    PP --> PMG[PrintModelGenerator<br/>layout → meshes]:::engine
+    SD --> KP[KitchenPlanView<br/>multi-drawer projects]:::kitchen
+    KP --> DS
+
+    PP --> PMG[PrintModelGenerator<br/>layout → meshes<br/>+ auto-split<br/>+ tier-2 lip]:::engine
     PP --> P3D[Print3DPreview<br/>SceneKit viewer]:::view
+    PP --> PA[PrintActivity<br/>Live Activity + tracker]:::engine
     PP --> SP[SlicerProvider]:::slicer
 
     SP -->|Bambu A1| BSE[BambuA1SlicerEngine]:::bambu

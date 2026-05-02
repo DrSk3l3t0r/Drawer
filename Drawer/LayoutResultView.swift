@@ -22,6 +22,8 @@ struct LayoutResultView: View {
     @State private var isRegenerating = false
     @State private var showEditOrganizers = false
     @State private var showPrintPrep = false
+    @State private var showARPreview = false
+    @State private var show3DView = false
     @Environment(\.dismiss) private var dismiss
     
     var body: some View {
@@ -71,9 +73,21 @@ struct LayoutResultView: View {
             EditOrganizersSheet(layout: $layout) {
                 regenerationStamp = UUID()
             }
+            .environmentObject(store)
         }
         .sheet(isPresented: $showPrintPrep) {
             PrintPrepView(layout: layout)
+                .environmentObject(store)
+        }
+        .fullScreenCover(isPresented: $showARPreview) {
+            NavigationStack {
+                ARDrawerPreviewView(layout: layout)
+            }
+        }
+        .fullScreenCover(isPresented: $show3DView) {
+            NavigationStack {
+                Layout3DView(layout: layout)
+            }
         }
         .overlay(saveConfirmation)
     }
@@ -328,6 +342,49 @@ struct LayoutResultView: View {
                 .shadow(color: layout.purpose.color.opacity(0.4), radius: 12, y: 6)
             }
             .buttonStyle(PressableStyle())
+
+            // Visualization row — AR + 3D side by side. Both are read-only
+            // ways to inspect the layout; grouped here so they sit above the
+            // mutating actions (3D Print, Save, Regenerate).
+            HStack(spacing: 12) {
+                Button(action: {
+                    UIImpactFeedbackGenerator(style: .light).impactOccurred()
+                    showARPreview = true
+                }) {
+                    HStack {
+                        Image(systemName: "arkit")
+                            .font(.system(size: 16, weight: .semibold))
+                        Text("AR Preview")
+                            .font(.subheadline.bold())
+                    }
+                    .foregroundStyle(.white)
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 14)
+                }
+                .buttonStyle(PressableStyle())
+                .glassEffect(.regular.tint(.cyan.opacity(0.25)).interactive(),
+                             in: RoundedRectangle(cornerRadius: 14))
+
+                Button(action: {
+                    UIImpactFeedbackGenerator(style: .light).impactOccurred()
+                    show3DView = true
+                }) {
+                    HStack {
+                        Image(systemName: "cube.transparent")
+                            .font(.system(size: 16, weight: .semibold))
+                        Text(layout.items.contains { $0.tier >= 2 }
+                             ? "3D · Stacks"
+                             : "3D View")
+                            .font(.subheadline.bold())
+                    }
+                    .foregroundStyle(.white)
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 14)
+                }
+                .buttonStyle(PressableStyle())
+                .glassEffect(.regular.tint(.purple.opacity(0.25)).interactive(),
+                             in: RoundedRectangle(cornerRadius: 14))
+            }
 
             // Print + Save row
             HStack(spacing: 12) {
@@ -636,19 +693,68 @@ struct DrawerBlueprintView: View {
                         withAnimation(.spring()) { selectedItemId = nil }
                     }
 
-                // Organizer items
-                ForEach(Array(layout.items.enumerated()), id: \.element.id) { index, item in
+                // Organizer items — sort tier-1 first so tier-2 (which shares
+                // the same XY footprint) renders on top with its distinctive
+                // dashed-border treatment, but visually inset so the tier-1
+                // parent peeks out at the edges. Long names that would
+                // collide with the tier-1 label are skipped — the user can
+                // see the full label by tapping or by opening the 3D view.
+                let sortedItems = layout.items.sorted { ($0.tier) < ($1.tier) }
+                ForEach(Array(sortedItems.enumerated()), id: \.element.id) { index, item in
                     let isSelected = selectedItemId == item.id
                     let dim = !animatedItemIds.contains(item.id)
+                    let isTier2 = item.tier >= 2
+                    let inset: Double = isTier2 ? 6 : 0
+                    let displayW = max(0, item.width * scale - inset * 2)
+                    let displayH = max(0, item.height * scale - inset * 2)
 
-                    RoundedRectangle(cornerRadius: 3)
-                        .fill(item.color.opacity(isSelected ? 0.85 : 0.6))
-                        .overlay(
+                    ZStack {
+                        // Body fill — tier-2 is more translucent so the
+                        // tier-1 parent shows through subtly.
+                        RoundedRectangle(cornerRadius: 3)
+                            .fill(item.color.opacity(
+                                isTier2 ? (isSelected ? 0.65 : 0.45)
+                                        : (isSelected ? 0.85 : 0.60)
+                            ))
+
+                        // Border: tier-1 solid, tier-2 dashed so users
+                        // immediately read the layered hierarchy without
+                        // needing a legend.
+                        if isTier2 {
+                            RoundedRectangle(cornerRadius: 3)
+                                .strokeBorder(
+                                    item.color,
+                                    style: StrokeStyle(
+                                        lineWidth: isSelected ? 2.5 : 1.4,
+                                        dash: [4, 3]
+                                    )
+                                )
+                        } else {
                             RoundedRectangle(cornerRadius: 3)
                                 .stroke(item.color,
-                                        lineWidth: isSelected ? 2.5 : 1)
-                        )
-                        .overlay(
+                                         lineWidth: isSelected ? 2.5 : 1)
+                        }
+
+                        // Label — tier-2 only labels itself if it's selected
+                        // OR if the parent's name would otherwise be
+                        // unreadable. Tier-2 also gets a small stack icon.
+                        if isTier2 {
+                            VStack(spacing: 1) {
+                                Image(systemName: "square.stack.3d.up.fill")
+                                    .font(.system(size: max(7, min(10, item.width * scale / 7)),
+                                                  weight: .bold))
+                                    .foregroundStyle(.white)
+                                if isSelected {
+                                    Text(item.name)
+                                        .font(.system(size: max(8, min(10, item.width * scale / 7)),
+                                                      weight: .bold))
+                                        .foregroundStyle(.white)
+                                        .lineLimit(1)
+                                        .minimumScaleFactor(0.5)
+                                }
+                            }
+                            .padding(3)
+                        } else {
                             Text(item.name)
                                 .font(.system(size: max(8, min(11, item.width * scale / 6)),
                                               weight: .medium))
@@ -656,27 +762,31 @@ struct DrawerBlueprintView: View {
                                 .lineLimit(2)
                                 .minimumScaleFactor(0.5)
                                 .padding(3)
-                        )
-                        .shadow(color: isSelected ? item.color.opacity(0.7) : .clear,
-                                radius: 8)
-                        .frame(width: item.width * scale, height: item.height * scale)
-                        .scaleEffect(dim ? 0.6 : (isSelected ? 1.04 : 1.0),
-                                     anchor: .center)
-                        .opacity(dim ? 0 : 1)
-                        .offset(x: offsetX + item.x * scale, y: offsetY + item.y * scale)
-                        .animation(
-                            .spring(response: 0.45, dampingFraction: 0.7)
-                                .delay(Double(index) * 0.025),
-                            value: animatedItemIds
-                        )
-                        .animation(.spring(response: 0.3, dampingFraction: 0.7),
-                                   value: selectedItemId)
-                        .onTapGesture {
-                            UISelectionFeedbackGenerator().selectionChanged()
-                            withAnimation(.spring(response: 0.3, dampingFraction: 0.7)) {
-                                selectedItemId = isSelected ? nil : item.id
-                            }
                         }
+                    }
+                    .shadow(color: isSelected ? item.color.opacity(0.7) : .clear,
+                            radius: 8)
+                    .frame(width: displayW, height: displayH)
+                    .scaleEffect(dim ? 0.6 : (isSelected ? 1.04 : 1.0),
+                                 anchor: .center)
+                    .opacity(dim ? 0 : 1)
+                    .offset(
+                        x: offsetX + item.x * scale + inset,
+                        y: offsetY + item.y * scale + inset
+                    )
+                    .animation(
+                        .spring(response: 0.45, dampingFraction: 0.7)
+                            .delay(Double(index) * 0.025),
+                        value: animatedItemIds
+                    )
+                    .animation(.spring(response: 0.3, dampingFraction: 0.7),
+                               value: selectedItemId)
+                    .onTapGesture {
+                        UISelectionFeedbackGenerator().selectionChanged()
+                        withAnimation(.spring(response: 0.3, dampingFraction: 0.7)) {
+                            selectedItemId = isSelected ? nil : item.id
+                        }
+                    }
                 }
 
                 // Dimension labels
