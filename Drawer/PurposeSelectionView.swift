@@ -228,12 +228,19 @@ struct PurposeSelectionView: View {
         let impact = UINotificationFeedbackGenerator()
 
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) {
-            // Start with the recommended set; the layout result editor lets
-            // the user add/remove specific organizers afterwards.
+            // Start with the recommended set, sized to the drawer (smaller
+            // drawers get fewer pre-selected items; larger drawers get the
+            // full catalog so the engine has more to pack with). The layout
+            // result editor lets the user add/remove specific organizers
+            // afterwards.
+            let drawerArea = measurement.widthInches * measurement.depthInches
             let layout = LayoutEngine.generateLayout(
                 measurement: measurement,
                 purpose: purpose,
-                selectedIds: LayoutEngine.recommendedIds(for: purpose)
+                selectedIds: LayoutEngine.recommendedIds(
+                    for: purpose,
+                    drawerArea: drawerArea
+                )
             )
             generatedLayout = layout
             isGenerating = false

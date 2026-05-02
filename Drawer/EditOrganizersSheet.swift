@@ -138,6 +138,7 @@ struct EditOrganizersSheet: View {
                     CatalogRow(
                         template: template,
                         fit: fit,
+                        isSelected: layout.selectedTemplateIds.contains(template.id),
                         accent: layout.purpose.color
                     ) {
                         addTemplate(template)
@@ -276,6 +277,11 @@ private struct PlacedItemRow: View {
 private struct CatalogRow: View {
     let template: OrganizerTemplate
     let fit: LayoutEngine.FitResult
+    /// Whether this template is in the current drawer's selection. Drives the
+    /// "IN" pill — replaces the old "REC" / `priority >= 5` heuristic so the
+    /// badge tracks what's actually in the user's drawer (which now adapts to
+    /// drawer size and grows via the fill pass).
+    let isSelected: Bool
     let accent: Color
     let onAdd: () -> Void
 
@@ -291,8 +297,8 @@ private struct CatalogRow: View {
                     Text(template.name)
                         .font(.subheadline.bold())
                         .foregroundStyle(.white.opacity(fit.canAdd ? 1 : 0.5))
-                    if template.isRecommended {
-                        Text("REC")
+                    if isSelected {
+                        Text("IN")
                             .font(.system(size: 9, weight: .heavy, design: .monospaced))
                             .tracking(1)
                             .foregroundStyle(accent)

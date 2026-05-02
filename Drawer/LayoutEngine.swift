@@ -21,6 +21,14 @@ struct OrganizerTemplate: Identifiable, Hashable {
     let group: String
     /// Position within the group; lower numbers are placed first.
     let groupOrder: Int
+    /// Engine-internal generic gap-filler. Hidden from the user-facing catalog;
+    /// only the layout engine's fill pass instantiates these. Fillers are
+    /// allowed to be placed multiple times in the same drawer.
+    var isFiller: Bool = false
+    /// If non-nil, the template can scale uniformly within this multiplier
+    /// range to fill remaining shelf space. Stretching only happens during
+    /// initial generate / fill pass — never during user-driven `adding(...)`.
+    var stretchable: ClosedRange<Double>? = nil
 
     /// Whether this template is selected by default in the recommended preset.
     var isRecommended: Bool { priority >= 5 }
@@ -43,7 +51,8 @@ class LayoutEngine {
             return [
                 OrganizerTemplate(id: "utensils.large_tray", name: "Large Utensil Tray",
                                   width: 6.0, height: 12.0, hue: 0.08, priority: 10,
-                                  group: "main_tray", groupOrder: 1),
+                                  group: "main_tray", groupOrder: 1,
+                                  stretchable: 1.0...1.35),
                 OrganizerTemplate(id: "utensils.fork", name: "Fork Section",
                                   width: 3.0, height: 10.0, hue: 0.10, priority: 8,
                                   group: "eating", groupOrder: 1),
@@ -101,7 +110,8 @@ class LayoutEngine {
                                   group: "small_parts", groupOrder: 3),
                 OrganizerTemplate(id: "junk.misc", name: "Misc Catch-All",
                                   width: 5.0, height: 5.0, hue: 0.65, priority: 4,
-                                  group: "catchall", groupOrder: 1),
+                                  group: "catchall", groupOrder: 1,
+                                  stretchable: 1.0...1.6),
             ]
 
         case .spices:
@@ -124,7 +134,8 @@ class LayoutEngine {
                                   group: "tall_items", groupOrder: 2),
                 OrganizerTemplate(id: "spices.packet", name: "Packet Basket",
                                   width: 6.0, height: 4.0, hue: 0.40, priority: 7,
-                                  group: "accessories", groupOrder: 1),
+                                  group: "accessories", groupOrder: 1,
+                                  stretchable: 1.0...1.3),
                 OrganizerTemplate(id: "spices.measuring", name: "Measuring Spoons",
                                   width: 3.0, height: 5.0, hue: 0.32, priority: 5,
                                   group: "accessories", groupOrder: 2),
@@ -190,7 +201,8 @@ class LayoutEngine {
                                   group: "tools", groupOrder: 2),
                 OrganizerTemplate(id: "office.usb", name: "USB/Cable Tray",
                                   width: 4.0, height: 5.0, hue: 0.65, priority: 6,
-                                  group: "tools", groupOrder: 3),
+                                  group: "tools", groupOrder: 3,
+                                  stretchable: 1.0...1.4),
             ]
 
         case .linens:
@@ -221,24 +233,65 @@ class LayoutEngine {
             return [
                 OrganizerTemplate(id: "custom.large", name: "Large Bin",
                                   width: 6.0, height: 8.0, hue: 0.45, priority: 10,
-                                  group: "large_bins", groupOrder: 1),
+                                  group: "large_bins", groupOrder: 1,
+                                  stretchable: 1.0...1.4),
                 OrganizerTemplate(id: "custom.wide", name: "Wide Tray",
                                   width: 8.0, height: 3.0, hue: 0.42, priority: 7,
-                                  group: "large_bins", groupOrder: 2),
+                                  group: "large_bins", groupOrder: 2,
+                                  stretchable: 1.0...1.3),
                 OrganizerTemplate(id: "custom.medium", name: "Medium Bin",
                                   width: 5.0, height: 5.0, hue: 0.50, priority: 8,
-                                  group: "medium_bins", groupOrder: 1),
+                                  group: "medium_bins", groupOrder: 1,
+                                  stretchable: 1.0...1.4),
                 OrganizerTemplate(id: "custom.narrow", name: "Narrow Slot",
                                   width: 2.0, height: 8.0, hue: 0.60, priority: 5,
                                   group: "medium_bins", groupOrder: 2),
                 OrganizerTemplate(id: "custom.small", name: "Small Bin",
                                   width: 3.0, height: 4.0, hue: 0.55, priority: 6,
-                                  group: "small_bins", groupOrder: 1),
+                                  group: "small_bins", groupOrder: 1,
+                                  stretchable: 1.0...1.3),
                 OrganizerTemplate(id: "custom.tiny", name: "Tiny Tray",
                                   width: 3.0, height: 3.0, hue: 0.65, priority: 4,
                                   group: "small_bins", groupOrder: 2),
             ]
         }
+    }
+
+    /// Universal generic-shape fillers used by the fill pass to claim leftover
+    /// drawer space. These are engine-internal — they never appear in the
+    /// user-facing catalog (`templates(for:)`) and aren't tracked in
+    /// `selectedTemplateIds`, so the same id may be placed multiple times in
+    /// one drawer (each copy gets its own runtime UUID via `OrganizerItem`).
+    /// All are stretchable so they can grow to claim a residual gap, and all
+    /// belong to the `filler` group so they don't disturb canonical ordering.
+    /// Hue is overridden at placement time to blend with neighboring items.
+    static func fillerTemplates() -> [OrganizerTemplate] {
+        [
+            OrganizerTemplate(id: "filler.2x2", name: "Mini Bin",
+                              width: 2.0, height: 2.0, hue: 0.55, priority: 1,
+                              group: "filler", groupOrder: 1,
+                              isFiller: true, stretchable: 1.0...1.5),
+            OrganizerTemplate(id: "filler.3x3", name: "Small Compartment",
+                              width: 3.0, height: 3.0, hue: 0.55, priority: 1,
+                              group: "filler", groupOrder: 2,
+                              isFiller: true, stretchable: 1.0...1.6),
+            OrganizerTemplate(id: "filler.2x4", name: "Narrow Slot",
+                              width: 2.0, height: 4.0, hue: 0.55, priority: 1,
+                              group: "filler", groupOrder: 3,
+                              isFiller: true, stretchable: 1.0...1.6),
+            OrganizerTemplate(id: "filler.4x4", name: "Compact Bin",
+                              width: 4.0, height: 4.0, hue: 0.55, priority: 1,
+                              group: "filler", groupOrder: 4,
+                              isFiller: true, stretchable: 1.0...1.5),
+            OrganizerTemplate(id: "filler.3x6", name: "Long Slot",
+                              width: 3.0, height: 6.0, hue: 0.55, priority: 1,
+                              group: "filler", groupOrder: 5,
+                              isFiller: true, stretchable: 1.0...1.4),
+            OrganizerTemplate(id: "filler.5x5", name: "Square Bin",
+                              width: 5.0, height: 5.0, hue: 0.55, priority: 1,
+                              group: "filler", groupOrder: 6,
+                              isFiller: true, stretchable: 1.0...1.3),
+        ]
     }
 
     /// Per-purpose canonical group ordering. Used when sorting templates for
@@ -279,9 +332,44 @@ class LayoutEngine {
         }
     }
 
-    /// Default selection for a purpose: items above the "recommended" priority bar.
+    /// Default selection for a purpose, adapted to drawer size. Larger drawers
+    /// get more pre-selected items so the engine has a richer pool to pack from.
+    /// User-defined templates are folded in so a custom 4×4 the user once added
+    /// shows up by default in any new drawer.
+    ///
+    /// Buckets (drawer area in sq inches):
+    /// - `< 180`: top-3 priority only (small drawer; don't overstuff)
+    /// - `180–280`: priority ≥ 5 (legacy default)
+    /// - `280–450`: priority ≥ 3 (medium-large; the 14×22 case)
+    /// - `> 450`: full catalog + user templates
+    static func recommendedIds(for purpose: DrawerPurpose,
+                                drawerArea: Double,
+                                userTemplates: [UserDefinedTemplate] = []) -> Set<String> {
+        let catalog = templates(for: purpose)
+        var ids: Set<String>
+        switch drawerArea {
+        case ..<180:
+            let top = catalog.sorted { $0.priority > $1.priority }.prefix(3)
+            ids = Set(top.map { $0.id })
+        case ..<280:
+            ids = Set(catalog.filter { $0.priority >= 5 }.map { $0.id })
+        case ..<450:
+            ids = Set(catalog.filter { $0.priority >= 3 }.map { $0.id })
+        default:
+            ids = Set(catalog.map { $0.id })
+            // For very large drawers, include user templates by default too.
+            for u in userTemplates {
+                ids.insert("user.\(u.id.uuidString)")
+            }
+        }
+        return ids
+    }
+
+    /// Zero-area shim for callers that don't yet pass drawer dimensions.
+    /// Falls back to a 14×22 baseline (308 sq in) so behavior matches the
+    /// historical P≥3 bucket for an "average" drawer.
     static func recommendedIds(for purpose: DrawerPurpose) -> Set<String> {
-        Set(templates(for: purpose).filter { $0.isRecommended }.map { $0.id })
+        recommendedIds(for: purpose, drawerArea: 308)
     }
 
     /// Minimal selection: top 3 by priority.
@@ -363,18 +451,31 @@ class LayoutEngine {
             }
         }
 
+        // Context-aware fill pass: claim residual empty space with stretchable
+        // fillers and any user-wanted templates that didn't fit in the main
+        // pack. Mutates `placed` and `selectedTemplateIds` in place.
+        var placed = result.placed
+        var selectedTemplateIds = activeTemplates.map { $0.id }
+        _ = fillRemaining(into: &placed,
+                           selectedTemplateIds: &selectedTemplateIds,
+                           drawerW: drawerW, drawerD: drawerD,
+                           purpose: purpose,
+                           activeTemplates: activeTemplates,
+                           userTemplates: userTemplates,
+                           obstacles: measurement.obstacles)
+
         let totalArea = drawerW * drawerD
-        let usedArea = result.placed.reduce(0.0) { $0 + ($1.width * $1.height) }
+        let usedArea = placed.reduce(0.0) { $0 + ($1.width * $1.height) }
         let coverage = totalArea > 0 ? (usedArea / totalArea) * 100.0 : 0
 
         return DrawerLayout(
             measurement: measurement,
             purpose: purpose,
-            items: result.placed,
+            items: placed,
             coveragePercentage: min(coverage, 100.0),
             unplacedTemplates: result.unplaced,
             warnings: warnings,
-            selectedTemplateIds: activeTemplates.map { $0.id }
+            selectedTemplateIds: selectedTemplateIds
         )
     }
 
@@ -752,12 +853,18 @@ class LayoutEngine {
         }
     }
 
-    /// Outer gap between shelves and between distinct units on a shelf.
-    private static let shelfPadding: Double = 0.25
-    /// Inner gap between items in the same group block — kept tight so that
-    /// fork/spoon/knife look and feel like a coherent cutlery row instead of
-    /// three loose modules.
-    private static let intraGroupPadding: Double = 0.1
+    /// Outer gap between shelves, between distinct units on a shelf, and
+    /// to drawer walls — slip-fit clearance only. After PrintModelGenerator's
+    /// per-side `tolerance` shrink (default 0.5 mm), printed modules end up
+    /// ~2 mm apart and ~1.5 mm from drawer walls. Tight tessellation makes
+    /// the layout self-locking: every module is pinned by its neighbors and
+    /// the drawer walls, with no empty space to slide into.
+    private static let shelfPadding: Double = 0.04
+    /// Inner gap between items in the same group block. Same value as
+    /// `shelfPadding` so the visual spacing reads uniformly across the
+    /// whole drawer — the layout looks like one tessellated grid rather
+    /// than nested clusters with different gap widths.
+    private static let intraGroupPadding: Double = 0.04
 
     // MARK: - Group block builders
 
@@ -1198,4 +1305,614 @@ class LayoutEngine {
 
         return false
     }
+
+    // MARK: - Fill Pass
+    //
+    // After the main shelf packer commits the user-selected templates, large
+    // chunks of the drawer often remain empty. The fill pass scans for those
+    // empty rectangles and drops in (a) low-priority items the user already
+    // wanted but didn't fit, and (b) generic stretchable fillers — colored to
+    // match neighboring items so the drawer reads as one coherent design.
+    //
+    // Pure post-process: doesn't touch existing placed items, doesn't rerun
+    // shelf packing, just claims residual area.
+
+    /// Empty rectangle inside the drawer interior. Coordinates are in inches
+    /// from the drawer's top-left corner (same convention as `OrganizerItem`).
+    fileprivate struct FreeRect {
+        var x: Double
+        var y: Double
+        var w: Double
+        var h: Double
+        var area: Double { w * h }
+    }
+
+    /// Snapshot of the placed items immediately neighboring a free rect, used
+    /// to bias the fill-pass scoring toward contextually appropriate
+    /// candidates and to source a tinted color for fillers.
+    fileprivate struct PlacementContext {
+        let neighborGroups: [String]
+        let dominantGroup: String?
+        /// Color of the dominant neighbor — used to tint fillers so they look
+        /// like part of the same zone instead of a generic gray bin.
+        let dominantHue: Double?
+    }
+
+    /// Compute empty rectangles inside the drawer interior, given the items
+    /// currently placed and any obstacles. Uses a Y-event sweep: sort all
+    /// distinct top/bottom edges, then for each horizontal strip between two
+    /// consecutive edges, find the X-spans not covered by any active occupant.
+    /// Strips below `minDimension` in either axis are dropped.
+    ///
+    /// Tier-2 modules overlap their parent's footprint and contribute no extra
+    /// area, so they're filtered out of the occupant set.
+    fileprivate static func freeRectangles(drawerW: Double,
+                                            drawerD: Double,
+                                            placed: [OrganizerItem],
+                                            obstacles: [DrawerObstacle],
+                                            minDimension: Double = 1.5) -> [FreeRect] {
+        let pad = shelfPadding
+        let usableX0 = pad
+        let usableY0 = pad
+        let usableX1 = drawerW - pad
+        let usableY1 = drawerD - pad
+        if usableX1 - usableX0 < minDimension || usableY1 - usableY0 < minDimension {
+            return []
+        }
+
+        struct Box { let x0, y0, x1, y1: Double }
+        var occupants: [Box] = []
+        for item in placed where item.tier == 1 {
+            occupants.append(Box(x0: item.x, y0: item.y,
+                                 x1: item.x + item.width,
+                                 y1: item.y + item.height))
+        }
+        for o in obstacles {
+            let r = o.rect
+            occupants.append(Box(x0: r.minX, y0: r.minY, x1: r.maxX, y1: r.maxY))
+        }
+
+        // Distinct Y-events inside the usable region.
+        var yEvents: Set<Double> = [usableY0, usableY1]
+        for o in occupants {
+            if o.y0 > usableY0 + 0.001 && o.y0 < usableY1 - 0.001 { yEvents.insert(o.y0) }
+            if o.y1 > usableY0 + 0.001 && o.y1 < usableY1 - 0.001 { yEvents.insert(o.y1) }
+        }
+        let sortedY = yEvents.sorted()
+
+        var rects: [FreeRect] = []
+        for i in 0 ..< (sortedY.count - 1) {
+            let y0 = sortedY[i]
+            let y1 = sortedY[i + 1]
+            let stripH = y1 - y0
+            if stripH < minDimension { continue }
+
+            // Active occupants for this strip — anything whose Y-span overlaps
+            // (y0, y1).
+            let active = occupants.filter { o in
+                o.y0 < y1 - 0.01 && o.y1 > y0 + 0.01
+            }
+
+            // Merged X-spans (so overlapping items collapse into one blocker).
+            let raw = active.map { (start: $0.x0, end: $0.x1) }
+                .sorted { $0.start < $1.start }
+            var merged: [(start: Double, end: Double)] = []
+            for b in raw {
+                if let last = merged.last, b.start <= last.end + 0.01 {
+                    merged[merged.count - 1] = (last.start, max(last.end, b.end))
+                } else {
+                    merged.append(b)
+                }
+            }
+
+            // Free spans inside the usable X range, between consecutive
+            // blockers.
+            var cursor = usableX0
+            for b in merged {
+                if b.start > cursor + 0.01 {
+                    let w = min(b.start, usableX1) - cursor
+                    if w >= minDimension {
+                        rects.append(FreeRect(x: cursor, y: y0, w: w, h: stripH))
+                    }
+                }
+                cursor = max(cursor, b.end)
+                if cursor >= usableX1 { break }
+            }
+            if usableX1 > cursor + 0.01 {
+                let w = usableX1 - cursor
+                if w >= minDimension {
+                    rects.append(FreeRect(x: cursor, y: y0, w: w, h: stripH))
+                }
+            }
+        }
+        // Merge adjacent strips into maximal rectangles. The Y-event sweep
+        // above produces narrow horizontal strips wherever items at varying
+        // Y positions create event boundaries — without merging, a tall
+        // empty area at the bottom of the drawer would surface as 3+ thin
+        // strips instead of one big rect, and the fill pass would drop a
+        // separate item into each strip.
+        return mergeAdjacentRects(rects)
+    }
+
+    /// Greedy merge of adjacent free rectangles. Two rects merge if their
+    /// non-shared dimension matches and they share an edge (vertically or
+    /// horizontally adjacent with no gap). Loops until no more merges
+    /// happen — typically converges in 2-3 passes for n ≤ 30 items.
+    fileprivate static func mergeAdjacentRects(_ rects: [FreeRect]) -> [FreeRect] {
+        var result = rects
+        let tol = 0.05
+        var didMerge = true
+        while didMerge {
+            didMerge = false
+            outer: for i in 0 ..< result.count {
+                for j in (i + 1) ..< result.count {
+                    let a = result[i]
+                    let b = result[j]
+
+                    // Vertical merge: same X span, vertically adjacent.
+                    if abs(a.x - b.x) < tol && abs(a.w - b.w) < tol {
+                        if abs(a.y + a.h - b.y) < tol {
+                            result[i] = FreeRect(x: a.x, y: a.y,
+                                                  w: a.w, h: a.h + b.h)
+                            result.remove(at: j)
+                            didMerge = true
+                            break outer
+                        }
+                        if abs(b.y + b.h - a.y) < tol {
+                            result[i] = FreeRect(x: b.x, y: b.y,
+                                                  w: b.w, h: a.h + b.h)
+                            result.remove(at: j)
+                            didMerge = true
+                            break outer
+                        }
+                    }
+
+                    // Horizontal merge: same Y span, horizontally adjacent.
+                    if abs(a.y - b.y) < tol && abs(a.h - b.h) < tol {
+                        if abs(a.x + a.w - b.x) < tol {
+                            result[i] = FreeRect(x: a.x, y: a.y,
+                                                  w: a.w + b.w, h: a.h)
+                            result.remove(at: j)
+                            didMerge = true
+                            break outer
+                        }
+                        if abs(b.x + b.w - a.x) < tol {
+                            result[i] = FreeRect(x: b.x, y: b.y,
+                                                  w: a.w + b.w, h: b.h)
+                            result.remove(at: j)
+                            didMerge = true
+                            break outer
+                        }
+                    }
+                }
+            }
+        }
+        return result
+    }
+
+    /// Score how related two groups are within a purpose. Same group → 1.0.
+    /// Otherwise use the canonical `groupOrder(for:)` array as the implicit
+    /// affinity signal: groups adjacent in the array are semantically related
+    /// (the canonical order encodes intent like "eating → cooking → specialty"),
+    /// distance encodes diminishing relatedness. Returns 0 if either group is
+    /// outside the canonical order (e.g. `"filler"`, `"user_custom"`).
+    fileprivate static func groupAffinity(_ a: String, _ b: String,
+                                           purpose: DrawerPurpose) -> Double {
+        if a == b { return 1.0 }
+        let order = groupOrder(for: purpose)
+        guard let i = order.firstIndex(of: a),
+              let j = order.firstIndex(of: b) else { return 0.0 }
+        return 1.0 / (1.0 + Double(abs(i - j)))
+    }
+
+    /// Find items whose bounding boxes are within `proximityInches` of the
+    /// rect, then summarize their dominant group + a color tint.
+    fileprivate static func placementContext(for rect: FreeRect,
+                                              among placed: [OrganizerItem],
+                                              groupByName: [String: String],
+                                              proximityInches: Double = 1.75) -> PlacementContext {
+        let rx1 = rect.x + rect.w
+        let ry1 = rect.y + rect.h
+        let neighbors: [OrganizerItem] = placed.filter { item in
+            let ix1 = item.x + item.width
+            let iy1 = item.y + item.height
+            let dx = max(0, max(rect.x - ix1, item.x - rx1))
+            let dy = max(0, max(rect.y - iy1, item.y - ry1))
+            return hypot(dx, dy) <= proximityInches
+        }
+
+        let groups = neighbors.compactMap { groupByName[$0.name] }
+        var counts: [String: Int] = [:]
+        for g in groups { counts[g, default: 0] += 1 }
+        let dominant = counts.max { $0.value < $1.value }?.key
+
+        let dominantHue: Double? = dominant.flatMap { d in
+            neighbors.first { groupByName[$0.name] == d }?.colorHue
+        }
+
+        return PlacementContext(neighborGroups: groups,
+                                 dominantGroup: dominant,
+                                 dominantHue: dominantHue)
+    }
+
+    /// Score a candidate template for placing in a free rect. Higher is better.
+    /// Combines area-fit (claim the rect well), context bonus (group affinity
+    /// with the rect's neighbors), priority bonus (catalog-important items
+    /// first), and a small filler penalty so real catalog items beat generic
+    /// fillers when affinity is similar.
+    fileprivate static func scoreCandidate(_ template: OrganizerTemplate,
+                                            fittedW: Double,
+                                            fittedH: Double,
+                                            in rect: FreeRect,
+                                            context: PlacementContext,
+                                            purpose: DrawerPurpose) -> Double {
+        let templateArea = fittedW * fittedH
+        let rectArea = max(0.01, rect.area)
+        let areaFit = min(1.0, templateArea / rectArea)
+
+        let affinity: Double = context.dominantGroup.map {
+            groupAffinity(template.group, $0, purpose: purpose)
+        } ?? 0.0
+
+        let priorityNorm = Double(template.priority) / 10.0
+        let fillerPenalty: Double = template.isFiller ? -0.15 : 0
+
+        return areaFit * 1.0
+            + affinity * 0.4
+            + priorityNorm * 0.2
+            + fillerPenalty
+    }
+
+    /// Compute placed dimensions for a template fitted into a free rect.
+    /// Uniformly scales (preserving aspect ratio) up to the template's
+    /// `stretchable.upperBound`, capped by the rect's available space minus
+    /// padding on each side. Tries both orientations, picks the larger area.
+    /// Returns nil if even the template's base size doesn't fit.
+    fileprivate static func stretchTemplate(_ t: OrganizerTemplate,
+                                             toFill rect: FreeRect,
+                                             padding: Double) -> (w: Double, h: Double)? {
+        let availW = rect.w - padding * 2
+        let availH = rect.h - padding * 2
+        if availW <= 0 || availH <= 0 { return nil }
+
+        func fit(origW: Double, origH: Double) -> (w: Double, h: Double)? {
+            if origW > availW + 0.01 || origH > availH + 0.01 { return nil }
+            guard let range = t.stretchable else { return (origW, origH) }
+            let scaleW = availW / origW
+            let scaleH = availH / origH
+            let cap = min(scaleW, scaleH, range.upperBound)
+            let scale = max(range.lowerBound, cap)
+            return (origW * scale, origH * scale)
+        }
+
+        let a = fit(origW: t.width, origH: t.height)
+        let b = fit(origW: t.height, origH: t.width)
+        switch (a, b) {
+        case let (.some(aa), .some(bb)):
+            return (aa.w * aa.h >= bb.w * bb.h) ? aa : bb
+        case let (.some(aa), .none): return aa
+        case let (.none, .some(bb)): return bb
+        case (.none, .none): return nil
+        }
+    }
+
+    /// Greedy context-aware fill of remaining space after the main pack.
+    /// Mutates `placed` in place; appends to `selectedTemplateIds` for any
+    /// non-filler templates dropped in (so the user can later remove them via
+    /// the editor without them auto-respawning). Filler ids are intentionally
+    /// not tracked — they're recomputed on every regenerate.
+    ///
+    /// Capped at `min(8, originalPlacedCount + 4)` total fill placements to
+    /// avoid the visual noise of a drawer full of tiny generic bins.
+    fileprivate static func fillRemaining(into placed: inout [OrganizerItem],
+                                           selectedTemplateIds: inout [String],
+                                           drawerW: Double,
+                                           drawerD: Double,
+                                           purpose: DrawerPurpose,
+                                           activeTemplates: [OrganizerTemplate],
+                                           userTemplates: [UserDefinedTemplate],
+                                           obstacles: [DrawerObstacle]) -> Int {
+        let originalCount = placed.count
+        let maxFills = min(8, originalCount + 4)
+        if maxFills <= 0 { return 0 }
+
+        // Group lookup for context inference. Catalog + user templates only —
+        // filler items don't need a known group (they're unscored as neighbors).
+        let catalog = templates(for: purpose)
+        var groupByName: [String: String] = [:]
+        for t in catalog { groupByName[t.name] = t.group }
+        for u in userTemplates { groupByName[u.name] = "user_custom" }
+
+        // Templates already in the drawer, so we don't double-place a
+        // non-filler. Walk `placed` in order and consume one matching catalog
+        // (or user) template per item — this correctly handles the case where
+        // two distinct templates share a display name (spice rows: row1 + row2
+        // are both "Spice Jar Row" but have different ids).
+        var alreadyUsedIds = Set<String>()
+        var availableCatalog = catalog
+        var availableUser: [(UserDefinedTemplate, String)] = userTemplates.map {
+            ($0, "user.\($0.id.uuidString)")
+        }
+        for item in placed {
+            if let idx = availableCatalog.firstIndex(where: { $0.name == item.name }) {
+                alreadyUsedIds.insert(availableCatalog[idx].id)
+                availableCatalog.remove(at: idx)
+            } else if let idx = availableUser.firstIndex(where: { $0.0.name == item.name }) {
+                alreadyUsedIds.insert(availableUser[idx].1)
+                availableUser.remove(at: idx)
+            }
+            // Otherwise it's a filler from a prior pass — no id to track.
+        }
+
+        // Candidate pool: user-wanted-but-unfitted + always-allowed fillers.
+        let unplacedActive = activeTemplates.filter { !alreadyUsedIds.contains($0.id) }
+        let fillers = fillerTemplates()
+        let candidates = unplacedActive + fillers
+
+        // Initial free-rect set, sorted largest-first.
+        var rects = freeRectangles(drawerW: drawerW, drawerD: drawerD,
+                                    placed: placed, obstacles: obstacles)
+            .sorted { $0.area > $1.area }
+
+        let fillPad = intraGroupPadding   // slip-fit inset around each filler
+
+        var fillsPlaced = 0
+        while fillsPlaced < maxFills,
+              let rectIdx = rects.firstIndex(where: { $0.w >= 1.5 && $0.h >= 1.5 }) {
+            let rect = rects.remove(at: rectIdx)
+
+            let context = placementContext(for: rect,
+                                            among: placed,
+                                            groupByName: groupByName)
+
+            // Pick the best-scoring candidate that fits.
+            struct Pick { let template: OrganizerTemplate; let w, h: Double; let score: Double }
+            var best: Pick? = nil
+            for template in candidates {
+                // Skip non-filler dupes.
+                if !template.isFiller && alreadyUsedIds.contains(template.id) { continue }
+                guard let (fittedW, fittedH) = stretchTemplate(template,
+                                                                toFill: rect,
+                                                                padding: fillPad) else { continue }
+                let placeX = rect.x + fillPad
+                let placeY = rect.y + fillPad
+                if collidesWithObstacles(obstacles,
+                                          x: placeX, y: placeY,
+                                          w: fittedW, h: fittedH) { continue }
+                let s = scoreCandidate(template,
+                                        fittedW: fittedW, fittedH: fittedH,
+                                        in: rect, context: context,
+                                        purpose: purpose)
+                if best == nil || s > best!.score {
+                    best = Pick(template: template, w: fittedW, h: fittedH, score: s)
+                }
+            }
+
+            guard let pick = best else { continue }
+
+            // Tint: fillers blend with the dominant neighbor's color (with
+            // reduced saturation so they read as auxiliary), real items keep
+            // their template hue.
+            let hue = (pick.template.isFiller && context.dominantHue != nil)
+                ? context.dominantHue!
+                : pick.template.hue
+            let saturation = pick.template.isFiller ? 0.32 : 0.55
+            let brightness = 0.85
+
+            let placeX = rect.x + fillPad
+            let placeY = rect.y + fillPad
+
+            placed.append(OrganizerItem(
+                name: pick.template.name,
+                x: placeX, y: placeY,
+                width: pick.w, height: pick.h,
+                hue: hue, saturation: saturation, brightness: brightness
+            ))
+            fillsPlaced += 1
+
+            // Track non-filler additions in selectedTemplateIds so they're
+            // sticky across regenerates and can be cleanly removed via the
+            // editor sheet. Fillers are recomputed each generate.
+            if !pick.template.isFiller {
+                alreadyUsedIds.insert(pick.template.id)
+                if !selectedTemplateIds.contains(pick.template.id) {
+                    selectedTemplateIds.append(pick.template.id)
+                }
+            }
+
+            // Carve the consumed area out of the rect, leaving up to two
+            // residual rectangles. Heuristic: keep the longer strip whole so
+            // subsequent placements have more usable area.
+            let usedW = pick.w + 2 * fillPad
+            let usedH = pick.h + 2 * fillPad
+            let remainW = rect.w - usedW
+            let remainH = rect.h - usedH
+            if remainW >= remainH {
+                if remainW >= 1.5 {
+                    rects.append(FreeRect(x: rect.x + usedW, y: rect.y,
+                                           w: remainW, h: rect.h))
+                }
+                if remainH >= 1.5 {
+                    rects.append(FreeRect(x: rect.x, y: rect.y + usedH,
+                                           w: usedW, h: remainH))
+                }
+            } else {
+                if remainH >= 1.5 {
+                    rects.append(FreeRect(x: rect.x, y: rect.y + usedH,
+                                           w: rect.w, h: remainH))
+                }
+                if remainW >= 1.5 {
+                    rects.append(FreeRect(x: rect.x + usedW, y: rect.y,
+                                           w: remainW, h: usedH))
+                }
+            }
+            rects.sort { $0.area > $1.area }
+        }
+
+        // Tessellation pass — recompute free rectangles from scratch using
+        // the current placed list (templates from main pack + fillers from
+        // the loop above). The working `rects` accumulated residuals from
+        // each placement and may have fragmented tall gaps into unusable
+        // strips; a fresh sweep + merge surfaces the actual maximal empty
+        // rectangles. Each remaining gap ≥ 1.5×1.5 in gets a single custom-
+        // sized OrganizerItem sized exactly to the rect, so the user sees
+        // ONE big filler per region instead of N narrow slots.
+        let finalRects = freeRectangles(
+            drawerW: drawerW, drawerD: drawerD,
+            placed: placed, obstacles: obstacles,
+            minDimension: 1.5
+        ).sorted { $0.area > $1.area }
+
+        let customMinDim = 1.5
+        for rect in finalRects where rect.w >= customMinDim && rect.h >= customMinDim {
+            let w = rect.w - 2 * fillPad
+            let h = rect.h - 2 * fillPad
+            if w < customMinDim || h < customMinDim { continue }
+            let placeX = rect.x + fillPad
+            let placeY = rect.y + fillPad
+            // Don't place if it would overlap an obstacle.
+            if collidesWithObstacles(obstacles,
+                                      x: placeX, y: placeY,
+                                      w: w, h: h) { continue }
+
+            // Tint to the dominant neighbor's hue (subtle, low saturation)
+            // so the filler reads as part of the surrounding zone.
+            let context = placementContext(for: rect,
+                                            among: placed,
+                                            groupByName: groupByName)
+            let hue = context.dominantHue ?? 0.55
+            placed.append(OrganizerItem(
+                name: "Filler",
+                x: placeX, y: placeY,
+                width: w, height: h,
+                hue: hue, saturation: 0.25, brightness: 0.85
+            ))
+            fillsPlaced += 1
+        }
+
+        return fillsPlaced
+    }
+
+    // MARK: - Debug Self-Test
+    //
+    // Sanity harness for the fill-pass redesign. Call from a debug build to
+    // verify coverage thresholds, item-overlap freedom, and group cohesion
+    // across representative drawer scenarios.
+
+    #if DEBUG
+    /// Runs `generateLayout` for several canonical drawer/purpose pairs and
+    /// prints a pass/fail report to the console. Returns true if all
+    /// scenarios pass their coverage threshold AND have no item overlaps.
+    @discardableResult
+    static func selfTest(verbose: Bool = true) -> Bool {
+        struct Scenario {
+            let w: Double
+            let d: Double
+            let purpose: DrawerPurpose
+            let minCoverage: Double
+            let label: String
+        }
+        let scenarios: [Scenario] = [
+            .init(w: 14, d: 22, purpose: .utensils,        minCoverage: 75, label: "Utensils 14×22"),
+            .init(w: 12, d: 18, purpose: .junkDrawer,      minCoverage: 60, label: "Junk 12×18"),
+            .init(w: 16, d: 10, purpose: .spices,          minCoverage: 75, label: "Spices 16×10"),
+            .init(w: 14, d: 22, purpose: .officeSupplies,  minCoverage: 75, label: "Office 14×22"),
+            .init(w: 10, d: 14, purpose: .bakingTools,     minCoverage: 60, label: "Baking 10×14 (small)"),
+            .init(w: 24, d: 30, purpose: .utensils,        minCoverage: 70, label: "Utensils 24×30 (large)"),
+            .init(w: 14, d: 22, purpose: .linens,          minCoverage: 75, label: "Linens 14×22"),
+            .init(w: 12, d: 18, purpose: .custom,          minCoverage: 65, label: "Custom 12×18"),
+        ]
+
+        var allPassed = true
+        for s in scenarios {
+            let m = DrawerMeasurement(
+                widthInches: s.w, depthInches: s.d, heightInches: 4,
+                source: .manual, confidenceScore: 1.0, heightMeasured: true
+            )
+            let area = s.w * s.d
+            let layout = generateLayout(
+                measurement: m,
+                purpose: s.purpose,
+                selectedIds: recommendedIds(for: s.purpose, drawerArea: area)
+            )
+
+            let coverageOK = layout.coveragePercentage >= s.minCoverage
+            let overlapOK = !hasOverlaps(layout.items)
+            let groupsOK = sameGroupItemsAreClustered(
+                layout.items, purpose: s.purpose,
+                diagonal: hypot(s.w, s.d)
+            )
+
+            let passed = coverageOK && overlapOK && groupsOK
+            allPassed = allPassed && passed
+            if verbose {
+                let icon = passed ? "✅" : "❌"
+                let cov = String(format: "%.1f%%", layout.coveragePercentage)
+                print("\(icon) \(s.label): coverage=\(cov) (≥\(Int(s.minCoverage))%), items=\(layout.items.count), overlap=\(overlapOK ? "ok" : "FAIL"), groups=\(groupsOK ? "ok" : "FAIL")")
+            }
+        }
+        if verbose {
+            print(allPassed ? "All scenarios passed." : "One or more scenarios failed.")
+        }
+        return allPassed
+    }
+
+    /// O(n²) sweep — fine for n < 30. Returns true if any two items'
+    /// rectangles overlap (more than a hair, accounting for floating-point).
+    private static func hasOverlaps(_ items: [OrganizerItem]) -> Bool {
+        // Tier-2 items legitimately overlap their tier-1 parent's footprint.
+        let tier1 = items.filter { $0.tier == 1 }
+        for i in 0 ..< tier1.count {
+            for j in (i + 1) ..< tier1.count {
+                let a = tier1[i], b = tier1[j]
+                let aX1 = a.x + a.width, aY1 = a.y + a.height
+                let bX1 = b.x + b.width, bY1 = b.y + b.height
+                let overlapX = a.x < bX1 - 0.02 && b.x < aX1 - 0.02
+                let overlapY = a.y < bY1 - 0.02 && b.y < aY1 - 0.02
+                if overlapX && overlapY { return true }
+            }
+        }
+        return false
+    }
+
+    /// Verifies that items belonging to the same semantic group are
+    /// spatially adjacent — max pairwise center distance ≤ a fraction of the
+    /// drawer diagonal. Catches regressions where fork/knife/spoon get
+    /// scattered. Threshold is `diagonal / 1.6` (≈62%): generous enough to
+    /// allow normal multi-shelf group splits, tight enough to catch true
+    /// scatter. Logs the offending group + distance on failure.
+    private static func sameGroupItemsAreClustered(_ items: [OrganizerItem],
+                                                    purpose: DrawerPurpose,
+                                                    diagonal: Double) -> Bool {
+        let catalog = templates(for: purpose)
+        var groupByName: [String: String] = [:]
+        for t in catalog { groupByName[t.name] = t.group }
+
+        var byGroup: [String: [OrganizerItem]] = [:]
+        for item in items {
+            guard let g = groupByName[item.name], g != "filler" else { continue }
+            byGroup[g, default: []].append(item)
+        }
+        let threshold = diagonal / 1.6
+        for (group, members) in byGroup where members.count > 1 {
+            for i in 0 ..< members.count {
+                for j in (i + 1) ..< members.count {
+                    let a = members[i], b = members[j]
+                    let cx = abs((a.x + a.width / 2) - (b.x + b.width / 2))
+                    let cy = abs((a.y + a.height / 2) - (b.y + b.height / 2))
+                    let d = hypot(cx, cy)
+                    if d > threshold {
+                        print("    [groups] \(group): \(a.name) at (\(format1(a.x)),\(format1(a.y))) and \(b.name) at (\(format1(b.x)),\(format1(b.y))) distance=\(format1(d)) > \(format1(threshold))")
+                        return false
+                    }
+                }
+            }
+        }
+        return true
+    }
+
+    private static func format1(_ v: Double) -> String {
+        String(format: "%.1f", v)
+    }
+    #endif
 }

@@ -139,8 +139,15 @@ enum BambuFilamentCatalog {
 // MARK: - Start / End / Filament Change Templates
 
 /// Streamlined Bambu A1 start sequence. Performs heat-up, homing, bed
-/// leveling, nozzle wipe + prime, and switches to relative extrusion. The
-/// `{{...}}` placeholders are substituted by the emitter.
+/// leveling, AMS lite filament load, nozzle wipe + prime, and switches
+/// to relative extrusion. The `{{...}}` placeholders are substituted by
+/// the emitter.
+///
+/// Critical: the AMS LOAD section (M620 → T0 → G1 E50 → M621) is what
+/// physically pushes filament from AMS slot 0 through the extruder gear
+/// into the hotend. Without it, the printer happily mimics print motion
+/// (G1 X/Y commands work) but no filament is ever extruded because the
+/// hotend is empty. This was the bug behind "printer prints air."
 enum BambuA1StartGcode {
     static let template = """
 ; FEATURE: Custom
@@ -203,14 +210,70 @@ G29.2 S1
 M190 S{{BED_TEMP}}
 M109 S{{NOZZLE_TEMP}}
 
-;===== prime line ==========================
+;===== AMS Lite filament load (slot 0) =====
+;       Tells the printer to engage AMS slot 0 and push filament through
+;       the extruder gear into the hotend. The 50 mm prime at slow speed
+;       (F200) is what physically loads the hotend. Without this block
+;       the print head moves correctly but extrudes nothing.
+M211 X0 Y0 Z0          ; turn off soft endstops for the side wipe
+M975 S1                ; turn on mech mode suppression
+
+G90
+G1 X-28.5 F30000        ; move to side wipe area
+G1 X-48.2 F3000
+
+M620 M                  ; enable AMS remap
+M620 S0A                ; start switch to AMS slot 0
+    M1002 gcode_claim_action : 4
+    M400
+    M1002 set_filament_type:UNKNOWN
+    M109 S{{NOZZLE_TEMP}}
+    M104 S250           ; raise to common flush temp
+    M400
+    T0                  ; SELECT TOOL 0 — engages AMS slot 0
+    G1 X-48.2 F3000
+    M400
+
+    M620.1 E F523.843 T240
+    M109 S250           ; wait for nozzle at flush temp
+    M106 P1 S0
+    G92 E0
+    G1 E50 F200         ; PRIME 50 mm — loads filament into hotend
+    M400
+    M1002 set_filament_type:{{FILAMENT_TYPE}}
+M621 S0A                ; finish AMS switch
+
+;===== final temp + secondary prime ========
+M109 S{{NOZZLE_TEMP}} H300
+G92 E0
+G1 E50 F200             ; second prime to ensure full load
+M400
+M106 P1 S178            ; side fan on for cooling
+G92 E0
+G1 E5 F200              ; small additional prime
+M104 S{{NOZZLE_TEMP}}   ; back to print temp
+G92 E0
+G1 E-0.5 F300           ; tiny retract before wipe
+
+;===== side wipe ==========================
+G1 X-28.5 F30000
+G1 X-48.2 F3000
+G1 X-28.5 F30000
+G1 X-48.2 F3000
+G1 X-28.5 F30000
+G1 X-48.2 F3000
+
+M400
+M106 P1 S0              ; side fan off
+
+;===== prime line on bed ==================
 M1002 gcode_claim_action : 24
 G90
 G0 X10 Y0.5 Z0.3 F12000
 G92 E0
 G1 X120 E12 F1500
 G92 E0
-G1 X10 Y0.8 Z0.3 F1200 ; second pass to clean nozzle
+G1 X10 Y0.8 Z0.3 F1200  ; second pass to clean nozzle
 G92 E0
 
 G0 Z2 F600
@@ -222,9 +285,9 @@ M106 P3 S200
 ;VT0
 G90
 G21
-M83 ; relative extrusion
-M981 S1 P20000 ;open spaghetti detector
-M1007 S1 ; turn on mass estimation
+M83                     ; relative extrusion
+M981 S1 P20000          ; open spaghetti detector
+M1007 S1                ; turn on mass estimation
 """
 }
 
